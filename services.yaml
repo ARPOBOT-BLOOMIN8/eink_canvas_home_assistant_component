@@ -1,0 +1,77 @@
+show_next:
+  name: Show Next Image
+  description: Display the next image in the current gallery or playlist
+  fields: {}
+
+sleep:
+  name: Sleep Device
+  description: Put the device into sleep mode
+  fields: {}
+
+reboot:
+  name: Reboot Device
+  description: Restart the device
+  fields: {}
+
+clear_screen:
+  name: Clear Screen
+  description: Clear the display screen
+  fields: {}
+
+whistle:
+  name: Whistle (Wake Up)
+  description: Send a whistle signal to wake up or keep the device active
+  fields: {}
+
+refresh_device_info:
+  name: Refresh Device Info
+  description: Refresh and update device information
+  fields: {}
+
+update_settings:
+  name: Update Device Settings
+  description: Update device configuration settings
+  fields:
+    name:
+      name: Device Name
+      description: The display name for the device
+      required: true
+      example: "Living Room Canvas"
+      selector:
+        text:
+          type: text
+    sleep_duration:
+      name: Sleep Duration (seconds)
+      description: How long the device stays asleep before waking up automatically
+      required: true
+      default: 86400
+      example: 86400
+      selector:
+        number:
+          min: 60
+          max: 604800
+          step: 60
+          unit_of_measurement: "seconds"
+    max_idle:
+      name: Max Idle Time (seconds)
+      description: Maximum time the device can be idle before going to sleep
+      required: true
+      default: 300
+      example: 300
+      selector:
+        number:
+          min: 10
+          max: 3600
+          step: 10
+          unit_of_measurement: "seconds"
+    idx_wake_sens:
+      name: Wake Sensitivity
+      description: Sensitivity level for wake up detection (1-10, higher is more sensitive)
+      required: true
+      default: 3
+      example: 3
+      selector:
+        number:
+          min: 1
+          max: 10
+          step: 1 

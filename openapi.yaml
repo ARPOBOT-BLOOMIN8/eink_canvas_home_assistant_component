@@ -1,0 +1,633 @@
+openapi: 3.0.0
+info:
+  title: Arpobot Bloomin8 E-Ink Canvas Public API Documentation
+  description: Welcome to the official API documentation for the Bloomin8 E-Ink Canvas. This document provides developers with all the necessary information to interact with and control the device programmatically. The API is designed to be straightforward and follows RESTful principles, allowing for easy integration into various platforms and applications, such as Home Assistant, custom scripts, or third-party services. All API requests and responses use the application/json content type unless otherwise specified.
+  version: 1.0.0
+  contact:
+    name: ArpoBot Company
+servers:
+  - url: /
+tags:
+  - name: System APIs
+    description: APIs for general device control, status monitoring, and system-level settings.
+  - name: Image APIs
+    description: APIs for managing and displaying images.
+  - name: Gallery APIs
+    description: APIs for managing collections of images (galleries).
+  - name: Playlist APIs
+    description: APIs for managing playlists, which are ordered lists of images with specific playback timing.
+
+paths:
+  /deviceInfo:
+    get:
+      summary: Get Device Information
+      description: Retrieves comprehensive information about the device's status and configuration.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: A JSON object containing detailed device attributes.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  name:
+                    type: string
+                    example: "My Canvas"
+                  version:
+                    type: string
+                    example: "1.0.0"
+                  board_model:
+                    type: string
+                    example: "sps_s3_v6_n16r8"
+                  screen_model:
+                    type: string
+                    example: "EL073TF1"
+                  battery:
+                    type: integer
+                    format: int32
+                    example: 85
+                  fs_ready:
+                    type: boolean
+                    example: true
+                  total_size:
+                    type: integer
+                    format: int64
+                    example: 15630401536
+                  free_size:
+                    type: integer
+                    format: int64
+                    example: 15626108928
+                  sleep_duration:
+                    type: integer
+                    format: int32
+                    example: 259200
+                  max_idle:
+                    type: integer
+                    format: int32
+                    example: 120
+                  network_type:
+                    type: integer
+                    format: int32
+                    description: 2 for Wi-Fi
+                    example: 2
+                  width:
+                    type: integer
+                    format: int32
+                    example: 480
+                  height:
+                    type: integer
+                    format: int32
+                    example: 800
+                  sta_ssid:
+                    type: string
+                    example: "My WiFi"
+                  sta_ip:
+                    type: string
+                    example: "192.168.1.100"
+                  image:
+                    type: string
+                    example: "/gallerys/default/f1.jpg"
+                  next_time:
+                    type: integer
+                    format: int64
+                    example: 1739182800
+                  gallery:
+                    type: string
+                    example: "default"
+                  playlist:
+                    type: string
+                    example: ""
+                  play_type:
+                    type: integer
+                    format: int32
+                    description: 0 for single image, 1 for gallery slideshow, 2 for playlist.
+                    example: 1
+
+  /state:
+    get:
+      summary: Get Task Status
+      description: Fetches the current brief status of the device's task processor.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Current task status.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: integer
+                    format: int32
+                    example: 100
+                  msg:
+                    type: string
+                    example: "Ready"
+
+  /show:
+    post:
+      summary: Start Playback
+      description: Initiates the display of a single image, a gallery slideshow, or a playlist.
+      tags:
+        - System APIs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - play_type
+              properties:
+                play_type:
+                  type: integer
+                  description: 0 for single image, 1 for gallery slideshow, 2 for playlist.
+                  enum: [0, 1, 2]
+                  example: 1
+                gallery:
+                  type: string
+                  description: Required when play_type is 1.
+                  example: "default"
+                duration:
+                  type: integer
+                  description: Required when play_type is 1. Interval in seconds.
+                  example: 120
+                playlist:
+                  type: string
+                  description: Required when play_type is 2.
+                  example: "my_playlist"
+                image:
+                  type: string
+                  description: Optional. Path to an image to display immediately.
+                  example: "/gallerys/default/f1.jpg"
+                dither:
+                  type: integer
+                  description: Optional. Dithering algorithm (e.g., 0 for Floyd-Steinberg, 1 for JJN).
+                  enum: [0, 1]
+                  example: 1
+      responses:
+        "200":
+          description: Playback initiated successfully.
+
+  /showNext:
+    post:
+      summary: Display Next Image
+      description: Immediately displays the next image in the current playback queue (gallery or playlist).
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Next image displayed successfully.
+
+  /sleep:
+    post:
+      summary: Set Device to Sleep
+      description: Commands the device to enter sleep mode to conserve power.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Device entering sleep mode.
+
+  /reboot:
+    post:
+      summary: Reboot Device
+      description: Commands the device to perform a software reboot.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Device rebooting.
+
+  /clearScreen:
+    post:
+      summary: Clear Screen
+      description: Clears the screen to a solid white state. This is recommended for screen maintenance and long-term storage.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Screen cleared successfully.
+
+  /settings:
+    post:
+      summary: Write Settings
+      description: Applies new configuration settings to the device.
+      tags:
+        - System APIs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Living Room Canvas"
+                sleep_duration:
+                  type: integer
+                  format: int32
+                  example: 86400
+                max_idle:
+                  type: integer
+                  format: int32
+                  example: 300
+                idx_wake_sens:
+                  type: integer
+                  format: int32
+                  example: 3
+      responses:
+        "200":
+          description: Settings applied successfully.
+
+  /whistle:
+    get:
+      summary: Whistle (Keep-Alive)
+      description: A keep-alive endpoint. Periodic requests to this endpoint will prevent the device from entering sleep mode due to inactivity.
+      tags:
+        - System APIs
+      responses:
+        "200":
+          description: Device acknowledged keep-alive.
+
+  /upload:
+    post:
+      summary: Upload Image
+      description: Uploads a single JPEG image to a specified gallery. The image can be displayed immediately upon upload.
+      tags:
+        - Image APIs
+      parameters:
+        - in: query
+          name: filename
+          schema:
+            type: string
+          required: true
+          description: The name to save the file as.
+        - in: query
+          name: gallery
+          schema:
+            type: string
+          required: false
+          description: The gallery to store the image in. Defaults to default.
+        - in: query
+          name: show_now
+          schema:
+            type: integer
+            enum: [0, 1]
+          required: false
+          description: 1 to display the image immediately after upload.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                image:
+                  type: string
+                  format: binary
+                  description: The binary data of the JPEG image.
+      responses:
+        "200":
+          description: Image uploaded successfully.
+
+  /image/uploadMulti:
+    post:
+      summary: Upload Multiple Images
+      description: Uploads multiple images in a single request.
+      tags:
+        - Image APIs
+      parameters:
+        - in: query
+          name: gallery
+          schema:
+            type: string
+          required: false
+          description: The destination gallery.
+        - in: query
+          name: override
+          schema:
+            type: integer
+            enum: [0, 1]
+          required: false
+          description: 1 to overwrite existing files with the same name.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                images:
+                  type: array
+                  items:
+                    type: string
+                    format: binary
+                  description: Multiple parts, each containing image binary data.
+      responses:
+        "200":
+          description: Images uploaded successfully.
+
+  /image/dataUpload:
+    post:
+      summary: Upload Dithered Image Data
+      description: Uploads pre-processed, dithered raw image data for fast, direct-to-screen rendering. This is an advanced feature.
+      tags:
+        - Image APIs
+      parameters:
+        - in: query
+          name: filename
+          schema:
+            type: string
+          required: true
+          description: A unique name for the data file.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                dithered_image:
+                  type: string
+                  format: binary
+                  description: The binary data of the dithered image.
+      responses:
+        "200":
+          description: Dithered image data uploaded successfully.
+
+  /image/delete:
+    post:
+      summary: Delete Image
+      description: Deletes a specific image from a gallery.
+      tags:
+        - Image APIs
+      parameters:
+        - in: query
+          name: image
+          schema:
+            type: string
+          required: true
+          description: The filename of the image to delete.
+        - in: query
+          name: gallery
+          schema:
+            type: string
+          required: false
+          description: The gallery containing the image. Defaults to default.
+      responses:
+        "200":
+          description: Image deleted successfully.
+
+  /gallery/list:
+    get:
+      summary: List All Galleries
+      description: Retrieves a list of all galleries on the device.
+      tags:
+        - Gallery APIs
+      responses:
+        "200":
+          description: A list of all galleries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: "default"
+
+  /gallery:
+    put:
+      summary: Create Gallery
+      description: Creates a new, empty gallery.
+      tags:
+        - Gallery APIs
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          required: true
+          description: The name for the new gallery.
+      responses:
+        "200":
+          description: Gallery created successfully.
+    get:
+      summary: List Images in Gallery
+      description: Retrieves a paginated list of all images within a specific gallery.
+      tags:
+        - Gallery APIs
+      parameters:
+        - in: query
+          name: gallery_name
+          schema:
+            type: string
+          required: true
+          description: The name of the gallery to query.
+        - in: query
+          name: offset
+          schema:
+            type: integer
+            format: int32
+          required: true
+          description: The starting index for pagination.
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            format: int32
+          required: true
+          description: The number of items per page.
+      responses:
+        "200":
+          description: Paginated list of images in the gallery.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: "f1.jpg"
+                        size:
+                          type: integer
+                          format: int32
+                          example: 138214
+                        time:
+                          type: integer
+                          format: int64
+                          example: 1739090018
+                  total:
+                    type: integer
+                    example: 1
+                  offset:
+                    type: integer
+                    example: 0
+                  limit:
+                    type: integer
+                    example: 10
+    delete:
+      summary: Delete Gallery
+      description: Deletes an entire gallery and all images contained within it.
+      tags:
+        - Gallery APIs
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          required: true
+          description: The name of the gallery to delete.
+      responses:
+        "200":
+          description: Gallery deleted successfully.
+
+  /playlist/list:
+    get:
+      summary: List All Playlists
+      description: Retrieves a list of all playlists on the device.
+      tags:
+        - Playlist APIs
+      responses:
+        "200":
+          description: A list of all playlists.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    name:
+                      type: string
+                      example: "daily_show"
+                    time:
+                      type: integer
+                      format: int64
+                      example: 1739095496
+
+  /playlist:
+    put:
+      summary: Create/Modify Playlist
+      description: Creates a new playlist or overwrites an existing one with new content.
+      tags:
+        - Playlist APIs
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - name
+                - type
+                - list
+              properties:
+                name:
+                  type: string
+                  example: "daily_show"
+                type:
+                  type: string
+                  enum: ["duration", "time"]
+                  example: "duration"
+                time_offset:
+                  type: integer
+                  format: int32
+                  description: In seconds, for 'time' type.
+                  example: 0
+                list:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      name:
+                        type: string
+                        example: "/gallerys/default/f1.jpg"
+                      duration:
+                        type: integer
+                        format: int32
+                        example: 40
+                      time:
+                        type: string
+                        example: ""
+      responses:
+        "200":
+          description: Playlist created/modified successfully.
+    get:
+      summary: Get Playlist Content
+      description: Retrieves the detailed content of a specific playlist.
+      tags:
+        - Playlist APIs
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          required: true
+          description: The name of the playlist to query.
+      responses:
+        "200":
+          description: The detailed content of the playlist.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                  - name
+                  - type
+                  - list
+                properties:
+                  name:
+                    type: string
+                    example: "daily_show"
+                  type:
+                    type: string
+                    enum: ["duration", "time"]
+                    example: "duration"
+                  time_offset:
+                    type: integer
+                    format: int32
+                    description: In seconds, for 'time' type.
+                    example: 0
+                  list:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name:
+                          type: string
+                          example: "/gallerys/default/f1.jpg"
+                        duration:
+                          type: integer
+                          format: int32
+                          example: 40
+                        time:
+                          type: string
+                          example: ""
+    delete:
+      summary: Delete Playlist
+      description: Deletes a specific playlist.
+      tags:
+        - Playlist APIs
+      parameters:
+        - in: query
+          name: name
+          schema:
+            type: string
+          required: true
+          description: The name of the playlist to delete.
+      responses:
+        "200":
+          description: Playlist deleted successfully.

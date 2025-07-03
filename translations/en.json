@@ -1,0 +1,22 @@
+{
+    "config": {
+        "step": {
+            "user": {
+                "title": "Connect to BLOOMIN8 E-Ink Canvas",
+                "description": "Set up your BLOOMIN8 E-Ink Canvas display.",
+                "data": {
+                    "host": "IP Address",
+                    "name": "Display Name"
+                }
+            }
+        },
+        "error": {
+            "cannot_connect": "Failed to connect to device",
+            "invalid_auth": "Invalid authentication",
+            "unknown": "Unexpected error occurred"
+        },
+        "abort": {
+            "already_configured": "Device is already configured"
+        }
+    }
+}

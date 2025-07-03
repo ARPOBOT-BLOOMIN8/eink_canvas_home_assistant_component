@@ -1,0 +1,14 @@
+{
+    "domain": "eink_display",
+    "name": "BLOOMIN8 E-Ink Canvas",
+    "codeowners": [],
+    "config_flow": true,
+    "dependencies": [],
+    "documentation": "https://bloomin8.readme.io",
+    "homekit": {},
+    "integration_type": "device",
+    "iot_class": "local_polling",
+    "requirements": ["aiohttp", "Pillow"],
+    "version": "1.5.14",
+    "icon": "icon.png"
+}
