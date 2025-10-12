@@ -86,11 +86,9 @@ class EinkBaseSelect(SelectEntity):
         )
 
     def _get_device_info(self) -> dict | None:
-        """Get device info from shared data."""
-        if (DOMAIN in self.hass.data and 
-            self._config_entry.entry_id in self.hass.data[DOMAIN]):
-            return self.hass.data[DOMAIN][self._config_entry.entry_id].get("device_info")
-        return None
+        """Get device info from shared runtime data."""
+        runtime_data = self._config_entry.runtime_data
+        return runtime_data.device_info
 
 
 class EinkSleepDurationSelect(EinkBaseSelect):

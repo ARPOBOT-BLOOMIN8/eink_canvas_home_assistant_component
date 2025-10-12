@@ -1,9 +1,7 @@
 """Config flow for BLOOMIN8 E-Ink Canvas integration."""
 from __future__ import annotations
 
-import asyncio
-import aiohttp
-import async_timeout
+import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -12,47 +10,33 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
+from .api_client import EinkCanvasApiClient
 from .const import (
     DOMAIN,
     CONF_NAME,
-    ENDPOINT_STATUS,
     ERROR_CANNOT_CONNECT,
     ERROR_INVALID_AUTH,
     ERROR_UNKNOWN,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
+
 async def validate_input(hass: HomeAssistant, data: dict) -> dict:
     """Validate the user input allows us to connect."""
-    headers = {
-        "Accept": "*/*",
-        "User-Agent": "Home Assistant",
-    }
-    
-    try:
-        async with async_timeout.timeout(10):
-            async with aiohttp.ClientSession() as session:
-                # Try to connect to the status endpoint
-                async with session.get(
-                    f"http://{data[CONF_HOST]}{ENDPOINT_STATUS}",
-                    headers=headers,
-                    ssl=False  # In case it's using self-signed cert
-                ) as response:
-                    # Any successful response means the device is accessible
-                    if response.status < 400:
-                        return {"title": data[CONF_NAME]}
-                    elif response.status == 401 or response.status == 403:
-                        raise InvalidAuth
-                    else:
-                        raise CannotConnect
+    host = data[CONF_HOST]
+    _LOGGER.info("Attempting to connect to device at: %s", host)
 
-    except asyncio.TimeoutError:
+    api_client = EinkCanvasApiClient(hass, host)
+
+    # Try to get device info to verify connection
+    device_info = await api_client.get_device_info()
+    if device_info is None:
+        _LOGGER.error("Failed to connect to device at %s - no response from /deviceInfo endpoint", host)
         raise CannotConnect
-    except aiohttp.ClientResponseError as err:
-        if err.status in (401, 403):
-            raise InvalidAuth
-        raise CannotConnect
-    except Exception as err:  # pylint: disable=broad-except
-        raise CannotConnect from err
+
+    _LOGGER.info("Successfully connected to device at %s", host)
+    return {"title": data[CONF_NAME]}
 
 class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for BLOOMIN8 E-Ink Canvas."""
@@ -74,7 +58,8 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = ERROR_CANNOT_CONNECT
             except InvalidAuth:
                 errors["base"] = ERROR_INVALID_AUTH
-            except Exception:  # pylint: disable=broad-except
+            except Exception as err:  # pylint: disable=broad-except
+                _LOGGER.exception("Unexpected error during config flow: %s", err)
                 errors["base"] = ERROR_UNKNOWN
 
         return self.async_show_form(

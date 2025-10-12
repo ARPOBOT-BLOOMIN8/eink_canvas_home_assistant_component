@@ -1,7 +1,7 @@
 """Constants for the BLOOMIN8 E-Ink Canvas integration."""
 
 # Domain identifier for the integration
-DOMAIN = "eink_display"
+DOMAIN = "bloomin8_eink_canvas"
 
 # API Endpoints - System APIs
 ENDPOINT_STATUS = "/state"  # Endpoint for checking device status
@@ -32,8 +32,11 @@ ENDPOINT_PLAYLIST = "/playlist"  # Endpoint for playlist operations (GET/PUT/DEL
 DEFAULT_NAME = "BLOOMIN8 Canvas"  # Default name for the device
 
 # Image Settings
-IMAGE_WIDTH = 1200  # Required image width in pixels
-IMAGE_HEIGHT = 1600  # Required image height in pixels
+# Note: Resolution is now detected dynamically from device info (width/height fields)
+# Supported resolutions:
+#   7.3" Canvas: 480x800
+#   13.3" Canvas: 1200x1600
+#   28.5" Canvas: 2160x3060
 SUPPORTED_FORMATS = ["JPEG", "JPG", "PNG", "GIF", "BMP", "WEBP"]  # Supported input image formats that will be converted to JPEG
 
 # Configuration

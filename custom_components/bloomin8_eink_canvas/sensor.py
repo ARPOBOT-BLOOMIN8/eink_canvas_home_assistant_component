@@ -2,9 +2,6 @@
 from __future__ import annotations
 
 import logging
-import aiohttp
-import async_timeout
-from datetime import datetime
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -19,7 +16,6 @@ from homeassistant.helpers.entity import DeviceInfo
 
 from .const import (
     DOMAIN,
-    ENDPOINT_DEVICE_INFO,
     DEFAULT_NAME,
 )
 
@@ -42,6 +38,7 @@ async def async_setup_entry(
         EinkLogSensor(hass, config_entry, host, name),
         EinkFirmwareVersionSensor(hass, config_entry, host, name),
         EinkWifiSSIDSensor(hass, config_entry, host, name),
+        EinkScreenResolutionSensor(hass, config_entry, host, name),
     ]
 
     async_add_entities(sensors, True)
@@ -70,50 +67,20 @@ class EinkBaseSensor(SensorEntity):
         )
 
     def _get_device_info(self) -> dict | None:
-        """Get device info from shared data."""
-        if (DOMAIN in self.hass.data and 
-            self._config_entry.entry_id in self.hass.data[DOMAIN]):
-            return self.hass.data[DOMAIN][self._config_entry.entry_id].get("device_info")
-        return None
+        """Get device info from shared runtime data."""
+        runtime_data = self._config_entry.runtime_data
+        return runtime_data.device_info
 
     async def _fetch_device_info(self) -> dict | None:
-        """Fetch device info directly from device."""
-        try:
-            async with async_timeout.timeout(10):
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(f"http://{self._host}{ENDPOINT_DEVICE_INFO}") as response:
-                        if response.status == 200:
-                            # Check content type and handle accordingly
-                            content_type = response.headers.get('content-type', '')
-                            if 'application/json' in content_type:
-                                device_info = await response.json()
-                            else:
-                                # Handle non-JSON response
-                                text_response = await response.text()
-                                _LOGGER.warning("Received non-JSON response from device: %s", text_response[:200])
-                                # Try to extract JSON from the response
-                                try:
-                                    import json
-                                    # Look for JSON-like content
-                                    start = text_response.find('{')
-                                    end = text_response.rfind('}') + 1
-                                    if start >= 0 and end > start:
-                                        json_str = text_response[start:end]
-                                        device_info = json.loads(json_str)
-                                    else:
-                                        device_info = None
-                                except Exception as json_err:
-                                    _LOGGER.error("Failed to parse device response: %s", json_err)
-                                    device_info = None
-                            
-                            if device_info:
-                                # Update shared data
-                                if DOMAIN in self.hass.data and self._config_entry.entry_id in self.hass.data[DOMAIN]:
-                                    self.hass.data[DOMAIN][self._config_entry.entry_id]["device_info"] = device_info
-                                return device_info
-        except Exception as err:
-            _LOGGER.debug("Error fetching device info: %s", str(err))
-        return None
+        """Fetch device info directly from device using API client."""
+        runtime_data = self._config_entry.runtime_data
+        api_client = runtime_data.api_client
+
+        device_info = await api_client.get_device_info()
+        if device_info:
+            # Update shared runtime data
+            runtime_data.device_info = device_info
+        return device_info
 
 
 class EinkDeviceInfoSensor(EinkBaseSensor):
@@ -283,31 +250,26 @@ class EinkLogSensor(EinkBaseSensor):
 
     async def async_update(self) -> None:
         """Update sensor state."""
-        if (DOMAIN in self.hass.data and 
-            self._config_entry.entry_id in self.hass.data[DOMAIN]):
-            
-            logs = self.hass.data[DOMAIN][self._config_entry.entry_id].get("logs", [])
-            
-            if logs:
-                latest_log = logs[-1]
-                self._attr_native_value = latest_log["message"]
-                
-                # Show recent 10 logs in attributes
-                recent_logs = logs[-10:] if len(logs) > 10 else logs
-                log_history = []
-                for log in recent_logs:
-                    timestamp = log["timestamp"].strftime("%H:%M:%S")
-                    log_history.append(f"[{timestamp}] {log['level'].upper()}: {log['message']}")
-                
-                self._attr_extra_state_attributes = {
-                    "latest_level": latest_log["level"],
-                    "latest_timestamp": latest_log["timestamp"].isoformat(),
-                    "total_logs": len(logs),
-                    "recent_logs": log_history,
-                }
-            else:
-                self._attr_native_value = "No logs"
-                self._attr_extra_state_attributes = {}
+        runtime_data = self._config_entry.runtime_data
+        logs = runtime_data.logs
+
+        if logs:
+            latest_log = logs[-1]
+            self._attr_native_value = latest_log["message"]
+
+            # Show recent 10 logs in attributes
+            recent_logs = logs[-10:] if len(logs) > 10 else logs
+            log_history = []
+            for log in recent_logs:
+                timestamp = log["timestamp"].strftime("%H:%M:%S")
+                log_history.append(f"[{timestamp}] {log['level'].upper()}: {log['message']}")
+
+            self._attr_extra_state_attributes = {
+                "latest_level": latest_log["level"],
+                "latest_timestamp": latest_log["timestamp"].isoformat(),
+                "total_logs": len(logs),
+                "recent_logs": log_history,
+            }
         else:
             self._attr_native_value = "No logs"
             self._attr_extra_state_attributes = {}
@@ -350,7 +312,7 @@ class EinkWifiSSIDSensor(EinkBaseSensor):
         device_info = self._get_device_info()
         if not device_info:
             device_info = await self._fetch_device_info()
-        
+
         if device_info:
             self._attr_native_value = device_info.get("sta_ssid", "Unknown")
             self._attr_extra_state_attributes = {
@@ -359,4 +321,46 @@ class EinkWifiSSIDSensor(EinkBaseSensor):
             }
         else:
             self._attr_native_value = "Offline"
+            self._attr_extra_state_attributes = {}
+
+
+class EinkScreenResolutionSensor(EinkBaseSensor):
+    """Screen resolution sensor."""
+
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(hass, config_entry, host, device_name)
+        self._attr_name = "Screen Resolution"
+        self._attr_unique_id = f"eink_display_{host}_screen_resolution"
+        self._attr_icon = "mdi:monitor-screenshot"
+
+    async def async_update(self) -> None:
+        """Update sensor state."""
+        device_info = self._get_device_info()
+        if not device_info:
+            device_info = await self._fetch_device_info()
+
+        if device_info:
+            width = device_info.get("width", 0)
+            height = device_info.get("height", 0)
+
+            # Determine canvas model based on resolution
+            canvas_model = "Unknown"
+            if width == 480 and height == 800:
+                canvas_model = "7.3\" Canvas"
+            elif width == 1200 and height == 1600:
+                canvas_model = "13.3\" Canvas"
+            elif width == 2160 and height == 3060:
+                canvas_model = "28.5\" Canvas"
+
+            self._attr_native_value = f"{width}x{height}"
+            self._attr_extra_state_attributes = {
+                "width": width,
+                "height": height,
+                "canvas_model": canvas_model,
+                "screen_model": device_info.get("screen_model", "Unknown"),
+                "aspect_ratio": f"{width}:{height}",
+            }
+        else:
+            self._attr_native_value = "Unknown"
             self._attr_extra_state_attributes = {} 

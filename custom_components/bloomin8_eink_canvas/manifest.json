@@ -1,5 +1,5 @@
 {
-    "domain": "eink_display",
+    "domain": "bloomin8_eink_canvas",
     "name": "BLOOMIN8 E-Ink Canvas",
     "codeowners": [],
     "config_flow": true,
