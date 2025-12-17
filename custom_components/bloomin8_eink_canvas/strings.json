@@ -8,6 +8,14 @@
                     "host": "IP Address",
                     "name": "Display Name"
                 }
+            },
+            "reconfigure": {
+                "title": "Reconfigure BLOOMIN8 E-Ink Canvas",
+                "description": "Update the connection settings for your BLOOMIN8 E-Ink Canvas display.",
+                "data": {
+                    "host": "IP Address",
+                    "name": "Display Name"
+                }
             }
         },
         "error": {
@@ -16,7 +24,8 @@
             "unknown": "Unexpected error occurred"
         },
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reconfigure_successful": "Configuration updated successfully"
         }
     }
 }
