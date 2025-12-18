@@ -5,7 +5,7 @@ import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
@@ -73,6 +73,7 @@ class EinkBaseSelect(SelectEntity):
         self._host = host
         self._device_name = device_name
         self._attr_has_entity_name = True
+        self._attr_entity_category = EntityCategory.CONFIG
 
     @property
     def device_info(self) -> DeviceInfo:
