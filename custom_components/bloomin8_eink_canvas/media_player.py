@@ -21,6 +21,9 @@ from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.components.media_player.browse_media import (
+    async_process_play_media_url,
+)
 
 from .const import (
     DOMAIN,
@@ -183,13 +186,8 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                     self.hass, media_id, self.entity_id
                 )
 
-                # Use play_item.path for HA 2025.8+ if available, fallback to url
-                if hasattr(play_item, 'path') and play_item.path:
-                    media_id = str(play_item.path)
-                    _LOGGER.info("Using media path (HA 2025.8+): %s", media_id)
-                else:
-                    media_id = play_item.url
-                    _LOGGER.info("Using media URL (legacy): %s", media_id)
+                media_id = async_process_play_media_url(self.hass, play_item.url)
+                _LOGGER.info("Using media URL: %s", media_id)
 
             # Ensure we have screen resolution
             if self._screen_width is None or self._screen_height is None:
