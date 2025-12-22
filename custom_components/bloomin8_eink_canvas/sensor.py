@@ -9,7 +9,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_NAME, PERCENTAGE, UnitOfInformation
+from homeassistant.const import CONF_HOST, CONF_NAME, PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
@@ -92,6 +92,7 @@ class EinkDeviceInfoSensor(EinkBaseSensor):
         self._attr_name = "Device Info"
         self._attr_unique_id = f"eink_display_{host}_device_info"
         self._attr_icon = "mdi:information"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_update(self) -> None:
         """Update sensor state."""
@@ -247,6 +248,7 @@ class EinkLogSensor(EinkBaseSensor):
         self._attr_name = "Logs"
         self._attr_unique_id = f"eink_display_{host}_logs"
         self._attr_icon = "mdi:text-box"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_update(self) -> None:
         """Update sensor state."""
@@ -284,6 +286,7 @@ class EinkFirmwareVersionSensor(EinkBaseSensor):
         self._attr_name = "Firmware Version"
         self._attr_unique_id = f"eink_display_{host}_firmware_version"
         self._attr_icon = "mdi:chip"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_update(self) -> None:
         """Update sensor state."""
@@ -306,6 +309,7 @@ class EinkWifiSSIDSensor(EinkBaseSensor):
         self._attr_name = "WiFi SSID"
         self._attr_unique_id = f"eink_display_{host}_wifi_ssid"
         self._attr_icon = "mdi:wifi"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_update(self) -> None:
         """Update sensor state."""
@@ -333,6 +337,7 @@ class EinkScreenResolutionSensor(EinkBaseSensor):
         self._attr_name = "Screen Resolution"
         self._attr_unique_id = f"eink_display_{host}_screen_resolution"
         self._attr_icon = "mdi:monitor-screenshot"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
     async def async_update(self) -> None:
         """Update sensor state."""

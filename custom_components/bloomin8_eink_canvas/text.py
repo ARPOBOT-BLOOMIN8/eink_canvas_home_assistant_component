@@ -5,7 +5,7 @@ import logging
 
 from homeassistant.components.text import TextEntity, TextMode
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_HOST, CONF_NAME
+from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
@@ -46,6 +46,7 @@ class EinkDeviceNameText(TextEntity):
         self._attr_mode = TextMode.TEXT
         self._attr_native_min = 1
         self._attr_native_max = 50
+        self._attr_entity_category = EntityCategory.CONFIG
 
     @property
     def device_info(self) -> DeviceInfo:
