@@ -5,9 +5,9 @@ import logging
 import voluptuous as vol
 
 from homeassistant import config_entries
+from homeassistant.config_entries import ConfigFlowResult
 from homeassistant.const import CONF_HOST
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResult
 from homeassistant.exceptions import HomeAssistantError
 
 from .api_client import EinkCanvasApiClient
@@ -43,7 +43,36 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
     VERSION = 1
 
-    async def async_step_user(self, user_input=None) -> FlowResult:
+    async def async_step_reconfigure(self, user_input=None) -> ConfigFlowResult:
+        """Handle reconfiguration of the integration."""
+        errors = {}
+        reconfigure_entry = self._get_reconfigure_entry()
+
+        if user_input is not None:
+            try:
+                await validate_input(self.hass, user_input)
+                return self.async_update_reload_and_abort(
+                    reconfigure_entry,
+                    data_updates=user_input,
+                )
+            except CannotConnect:
+                errors["base"] = ERROR_CANNOT_CONNECT
+            except InvalidAuth:
+                errors["base"] = ERROR_INVALID_AUTH
+            except Exception as err:
+                _LOGGER.exception("Unexpected error during reconfigure: %s", err)
+                errors["base"] = ERROR_UNKNOWN
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=vol.Schema({
+                vol.Required(CONF_HOST, default=reconfigure_entry.data.get(CONF_HOST, "")): str,
+                vol.Required(CONF_NAME, default=reconfigure_entry.data.get(CONF_NAME, "BLOOMIN8 E-Ink Canvas")): str,
+            }),
+            errors=errors,
+        )
+
+    async def async_step_user(self, user_input=None) -> ConfigFlowResult:
         """Handle the initial step."""
         errors = {}
 
