@@ -5,6 +5,7 @@
     "config_flow": true,
     "dependencies": [],
     "documentation": "https://bloomin8.readme.io",
+    "issue_tracker": "https://github.com/ARPOBOT-BLOOMIN8/eink_canvas_home_assistant_component/issues",
     "homekit": {},
     "integration_type": "device",
     "iot_class": "local_polling",
