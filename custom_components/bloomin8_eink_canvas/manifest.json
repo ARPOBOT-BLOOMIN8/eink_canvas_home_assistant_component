@@ -10,6 +10,6 @@
     "integration_type": "device",
     "iot_class": "local_polling",
     "requirements": ["aiohttp", "Pillow"],
-    "version": "1.5.14",
+    "version": "1.6.0",
     "icon": "icon.png"
 }
