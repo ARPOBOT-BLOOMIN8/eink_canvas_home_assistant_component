@@ -15,8 +15,6 @@ from homeassistant.config_entries import ConfigEntry
 from .const import (
     DOMAIN,
     ENDPOINT_UPLOAD,
-    IMAGE_WIDTH,
-    IMAGE_HEIGHT,
     SUPPORTED_FORMATS,
 )
 

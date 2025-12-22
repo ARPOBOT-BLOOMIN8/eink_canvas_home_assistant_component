@@ -41,6 +41,28 @@ SUPPORTED_FORMATS = ["JPEG", "JPG", "PNG", "GIF", "BMP", "WEBP"]  # Supported in
 
 # Configuration
 CONF_NAME = "name"
+CONF_ORIENTATION = "orientation"
+CONF_FILL_MODE = "fill_mode"
+CONF_CONTAIN_COLOR = "contain_color"
+
+# Image processing options
+ORIENTATION_PORTRAIT = "portrait"
+ORIENTATION_LANDSCAPE = "landscape"
+
+FILL_MODE_CONTAIN = "contain"
+FILL_MODE_COVER = "cover"
+FILL_MODE_AUTO = "auto"
+
+# Default image processing settings
+DEFAULT_ORIENTATION = ORIENTATION_PORTRAIT
+DEFAULT_FILL_MODE = FILL_MODE_AUTO
+DEFAULT_CONTAIN_COLOR = "#FFFFFF"
+
+# Background colors for contain mode
+CONTAIN_COLORS = {
+    "#FFFFFF": "White",
+    "#000000": "Black",
+}
 
 # Error messages
 ERROR_CANNOT_CONNECT = "cannot_connect"

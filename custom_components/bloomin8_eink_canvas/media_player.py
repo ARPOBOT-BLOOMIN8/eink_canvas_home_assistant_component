@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import logging
 import os
-from io import BytesIO
-from PIL import Image
 import time
+from datetime import datetime
+from io import BytesIO
+
+from PIL import Image
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -21,6 +23,7 @@ from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.components.media_player.browse_media import (
     async_process_play_media_url,
 )
@@ -28,6 +31,16 @@ from homeassistant.components.media_player.browse_media import (
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
+    CONF_ORIENTATION,
+    CONF_FILL_MODE,
+    CONF_CONTAIN_COLOR,
+    ORIENTATION_LANDSCAPE,
+    FILL_MODE_CONTAIN,
+    FILL_MODE_COVER,
+    FILL_MODE_AUTO,
+    DEFAULT_ORIENTATION,
+    DEFAULT_FILL_MODE,
+    DEFAULT_CONTAIN_COLOR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -245,20 +258,17 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
 
     async def _load_image_data(self, media_id: str) -> bytes | None:
         """Load image data from file or URL."""
-        # Guard clause: Check if it's a local file
+        # Handle URL
         if not media_id.startswith("/"):
-            # Download from URL
-            import aiohttp
-            async with aiohttp.ClientSession() as session:
-                async with session.get(media_id) as response:
-                    if response.status != 200:
-                        _LOGGER.error("Failed to download image from URL")
-                        return None
-                    return await response.read()
+            session = async_get_clientsession(self.hass)
+            async with session.get(media_id) as response:
+                if response.status != 200:
+                    _LOGGER.error("Failed to download image from URL: %s", response.status)
+                    return None
+                return await response.read()
 
-        # Guard clause: Check file exists
-        file_exists = await self.hass.async_add_executor_job(os.path.exists, media_id)
-        if not file_exists:
+        # Handle local file
+        if not await self.hass.async_add_executor_job(os.path.exists, media_id):
             _LOGGER.error("File does not exist: %s", media_id)
             return None
 
@@ -269,19 +279,33 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         return await self.hass.async_add_executor_job(read_file)
 
     async def _process_image(self, image_data: bytes) -> bytes | None:
-        """Process image for e-ink display."""
+        """Process image for e-ink display with orientation and fill mode support."""
         try:
             image = Image.open(BytesIO(image_data))
             _LOGGER.info("Processing image: %s, size: %s", image.format, image.size)
+
+            # Get configuration
+            orientation = self._config_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION)
+            fill_mode = self._config_entry.data.get(CONF_FILL_MODE, DEFAULT_FILL_MODE)
+            contain_color = self._config_entry.data.get(CONF_CONTAIN_COLOR, DEFAULT_CONTAIN_COLOR)
+
+            _LOGGER.info(
+                "Image processing config - orientation: %s, fill_mode: %s, contain_color: %s",
+                orientation, fill_mode, contain_color
+            )
 
             # Convert to RGB if needed
             image = await self.hass.async_add_executor_job(
                 self._convert_to_rgb, image
             )
 
-            # Scale and crop to fit display
+            # Process image with orientation and fill mode
             image = await self.hass.async_add_executor_job(
-                self._scale_and_crop, image
+                self._process_with_orientation,
+                image,
+                orientation,
+                fill_mode,
+                contain_color
             )
 
             # Convert to JPEG
@@ -308,47 +332,141 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             return image.convert('RGB')
         return image
 
-    def _scale_and_crop(self, image: Image.Image) -> Image.Image:
-        """Scale and crop image to fit display."""
-        # Use stored screen resolution
-        target_width = self._screen_width
-        target_height = self._screen_height
+    def _hex_to_rgb(self, hex_color: str) -> tuple[int, int, int]:
+        """Convert hex color string to RGB tuple."""
+        hex_color = hex_color.lstrip('#')
+        if len(hex_color) != 6:
+            return (255, 255, 255)  # Default to white
+        try:
+            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        except ValueError:
+            return (255, 255, 255)
+
+    def _process_with_orientation(
+        self,
+        image: Image.Image,
+        orientation: str,
+        fill_mode: str,
+        contain_color: str
+    ) -> Image.Image:
+        """Process image based on orientation and fill mode settings.
+
+        The device API always expects portrait images. For landscape orientation,
+        we create a landscape-oriented image then rotate it 90° clockwise.
+        """
+        # Screen resolution (always portrait from device)
+        screen_width = self._screen_width   # e.g., 1200
+        screen_height = self._screen_height  # e.g., 1600
+
+        # Determine canvas dimensions based on orientation
+        canvas_is_landscape = (orientation == ORIENTATION_LANDSCAPE)
+        if canvas_is_landscape:
+            # For landscape, we work with swapped dimensions first
+            target_width = screen_height  # 1600
+            target_height = screen_width  # 1200
+        else:
+            target_width = screen_width   # 1200
+            target_height = screen_height  # 1600
+
+        # Determine if image is landscape
+        image_is_landscape = image.width > image.height
+
+        # Determine actual fill mode
+        if fill_mode == FILL_MODE_AUTO:
+            # Same orientation -> cover, different -> contain
+            if image_is_landscape == canvas_is_landscape:
+                actual_fill_mode = FILL_MODE_COVER
+            else:
+                actual_fill_mode = FILL_MODE_CONTAIN
+        else:
+            actual_fill_mode = fill_mode
 
         _LOGGER.info(
-            "Resizing image from %dx%d to target %dx%d",
-            image.width,
-            image.height,
-            target_width,
-            target_height
+            "Processing: image %dx%d (%s), canvas %dx%d (%s), fill_mode: %s -> %s",
+            image.width, image.height,
+            "landscape" if image_is_landscape else "portrait",
+            target_width, target_height,
+            "landscape" if canvas_is_landscape else "portrait",
+            fill_mode, actual_fill_mode
         )
 
-        image_aspect_ratio = image.width / image.height
-        target_aspect_ratio = target_width / target_height
+        # Apply fill mode
+        if actual_fill_mode == FILL_MODE_COVER:
+            processed = self._cover_image(image, target_width, target_height)
+        else:  # FILL_MODE_CONTAIN
+            bg_color = self._hex_to_rgb(contain_color)
+            processed = self._contain_image(image, target_width, target_height, bg_color)
 
-        if image_aspect_ratio > target_aspect_ratio:
-            # Image is wider - fit to height
+        # If landscape orientation, rotate 90° clockwise to make it portrait for API
+        if canvas_is_landscape:
+            processed = processed.rotate(-90, expand=True)
+            _LOGGER.info("Rotated image for landscape display: %dx%d", processed.width, processed.height)
+
+        _LOGGER.info("Final processed image size: %dx%d", processed.width, processed.height)
+        return processed
+
+    def _cover_image(
+        self,
+        image: Image.Image,
+        target_width: int,
+        target_height: int
+    ) -> Image.Image:
+        """Scale and crop image to cover the target area (center crop)."""
+        image_aspect = image.width / image.height
+        target_aspect = target_width / target_height
+
+        if image_aspect > target_aspect:
+            # Image is wider - fit to height, crop width
             scaled_height = target_height
-            scaled_width = int(target_height * image_aspect_ratio)
+            scaled_width = int(target_height * image_aspect)
         else:
-            # Image is taller - fit to width
+            # Image is taller - fit to width, crop height
             scaled_width = target_width
-            scaled_height = int(target_width / image_aspect_ratio)
+            scaled_height = int(target_width / image_aspect)
 
         # Scale image
         scaled_image = image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
 
-        # Crop to target size
+        # Center crop
         x_offset = (scaled_width - target_width) // 2
         y_offset = (scaled_height - target_height) // 2
-        final_image = scaled_image.crop((
+        return scaled_image.crop((
             x_offset,
             y_offset,
             x_offset + target_width,
             y_offset + target_height
         ))
 
-        _LOGGER.info("Final processed image size: %dx%d", final_image.width, final_image.height)
-        return final_image
+    def _contain_image(
+        self,
+        image: Image.Image,
+        target_width: int,
+        target_height: int,
+        bg_color: tuple[int, int, int]
+    ) -> Image.Image:
+        """Scale image to fit within target area, fill remaining with background color."""
+        image_aspect = image.width / image.height
+        target_aspect = target_width / target_height
+
+        if image_aspect > target_aspect:
+            # Image is wider - fit to width
+            scaled_width = target_width
+            scaled_height = int(target_width / image_aspect)
+        else:
+            # Image is taller - fit to height
+            scaled_height = target_height
+            scaled_width = int(target_height * image_aspect)
+
+        # Scale image
+        scaled_image = image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+
+        # Create background and paste centered
+        background = Image.new('RGB', (target_width, target_height), bg_color)
+        x_offset = (target_width - scaled_width) // 2
+        y_offset = (target_height - scaled_height) // 2
+        background.paste(scaled_image, (x_offset, y_offset))
+
+        return background
 
     async def async_browse_media(self, media_content_type: str | None = None, media_content_id: str | None = None) -> BrowseMedia:
         """Browse media - show device galleries and local media."""
@@ -481,16 +599,11 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
 
     async def _add_log(self, message: str, level: str = "info") -> None:
         """Add log entry."""
-        from datetime import datetime
-
-        log_entry = {
+        runtime_data = self._config_entry.runtime_data
+        runtime_data.logs.append({
             "timestamp": datetime.now(),
             "level": level,
             "message": message,
-        }
-
-        runtime_data = self._config_entry.runtime_data
-        runtime_data.logs.append(log_entry)
-        # Keep only recent 50 logs
+        })
         if len(runtime_data.logs) > 50:
             runtime_data.logs.pop(0)

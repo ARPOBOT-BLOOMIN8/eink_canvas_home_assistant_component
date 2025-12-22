@@ -16,6 +16,10 @@ _LOGGER = logging.getLogger(__name__)
 
 # Sleep duration options mapping
 SLEEP_DURATION_OPTIONS = {
+    "30 minutes": 1800,
+    "1 hour": 3600,
+    "3 hours": 10800,
+    "6 hours": 21600,
     "12 hours": 43200,
     "1 day": 86400,
     "2 days": 172800,

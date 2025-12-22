@@ -6,7 +6,31 @@
                 "description": "Set up your BLOOMIN8 E-Ink Canvas display.",
                 "data": {
                     "host": "IP Address",
-                    "name": "Display Name"
+                    "name": "Display Name",
+                    "orientation": "Display Orientation",
+                    "fill_mode": "Image Fill Mode",
+                    "contain_color": "Background Color"
+                },
+                "data_description": {
+                    "orientation": "Select portrait or landscape based on how your frame is mounted",
+                    "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
+                    "contain_color": "Background color used when image doesn't fill the screen (contain mode)"
+                }
+            },
+            "reconfigure": {
+                "title": "Reconfigure BLOOMIN8 E-Ink Canvas",
+                "description": "Update the connection settings for your BLOOMIN8 E-Ink Canvas display.",
+                "data": {
+                    "host": "IP Address",
+                    "name": "Display Name",
+                    "orientation": "Display Orientation",
+                    "fill_mode": "Image Fill Mode",
+                    "contain_color": "Background Color"
+                },
+                "data_description": {
+                    "orientation": "Select portrait or landscape based on how your frame is mounted",
+                    "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
+                    "contain_color": "Background color used when image doesn't fill the screen (contain mode)"
                 }
             }
         },
@@ -16,7 +40,29 @@
             "unknown": "Unexpected error occurred"
         },
         "abort": {
-            "already_configured": "Device is already configured"
+            "already_configured": "Device is already configured",
+            "reconfigure_successful": "Configuration updated successfully"
+        }
+    },
+    "selector": {
+        "orientation": {
+            "options": {
+                "portrait": "Portrait (Vertical)",
+                "landscape": "Landscape (Horizontal)"
+            }
+        },
+        "fill_mode": {
+            "options": {
+                "auto": "Auto (Smart fit)",
+                "contain": "Contain (Fit with background)",
+                "cover": "Cover (Crop to fill)"
+            }
+        },
+        "contain_color": {
+            "options": {
+                "#FFFFFF": "White",
+                "#000000": "Black"
+            }
         }
     }
 }

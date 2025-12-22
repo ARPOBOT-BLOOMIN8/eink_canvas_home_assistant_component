@@ -14,6 +14,18 @@ from .api_client import EinkCanvasApiClient
 from .const import (
     DOMAIN,
     CONF_NAME,
+    CONF_ORIENTATION,
+    CONF_FILL_MODE,
+    CONF_CONTAIN_COLOR,
+    ORIENTATION_PORTRAIT,
+    ORIENTATION_LANDSCAPE,
+    FILL_MODE_CONTAIN,
+    FILL_MODE_COVER,
+    FILL_MODE_AUTO,
+    DEFAULT_ORIENTATION,
+    DEFAULT_FILL_MODE,
+    DEFAULT_CONTAIN_COLOR,
+    CONTAIN_COLORS,
     ERROR_CANNOT_CONNECT,
     ERROR_INVALID_AUTH,
     ERROR_UNKNOWN,
@@ -68,6 +80,9 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_HOST, default=reconfigure_entry.data.get(CONF_HOST, "")): str,
                 vol.Required(CONF_NAME, default=reconfigure_entry.data.get(CONF_NAME, "BLOOMIN8 E-Ink Canvas")): str,
+                vol.Required(CONF_ORIENTATION, default=reconfigure_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION)): vol.In([ORIENTATION_PORTRAIT, ORIENTATION_LANDSCAPE]),
+                vol.Required(CONF_FILL_MODE, default=reconfigure_entry.data.get(CONF_FILL_MODE, DEFAULT_FILL_MODE)): vol.In([FILL_MODE_AUTO, FILL_MODE_CONTAIN, FILL_MODE_COVER]),
+                vol.Required(CONF_CONTAIN_COLOR, default=reconfigure_entry.data.get(CONF_CONTAIN_COLOR, DEFAULT_CONTAIN_COLOR)): vol.In(list(CONTAIN_COLORS.keys())),
             }),
             errors=errors,
         )
@@ -96,6 +111,9 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema({
                 vol.Required(CONF_HOST): str,
                 vol.Required(CONF_NAME, default="BLOOMIN8 E-Ink Canvas"): str,
+                vol.Required(CONF_ORIENTATION, default=DEFAULT_ORIENTATION): vol.In([ORIENTATION_PORTRAIT, ORIENTATION_LANDSCAPE]),
+                vol.Required(CONF_FILL_MODE, default=DEFAULT_FILL_MODE): vol.In([FILL_MODE_AUTO, FILL_MODE_CONTAIN, FILL_MODE_COVER]),
+                vol.Required(CONF_CONTAIN_COLOR, default=DEFAULT_CONTAIN_COLOR): vol.In(list(CONTAIN_COLORS.keys())),
             }),
             errors=errors,
         )
