@@ -183,7 +183,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         """Play media - show image using /show API."""
-        if not media_type.startswith("image/"):
+        if not (media_type.startswith("image/") or media_type == "image"):
             _LOGGER.error("Only images are supported, got: %s", media_type)
             return
 
@@ -485,13 +485,19 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 return await media_source.async_browse_media(
                     self.hass,
                     None,
-                    content_filter=lambda item: item.media_content_type.startswith('image/')
+                    content_filter=lambda item: item.media_content_type and (
+                        item.media_content_type.startswith('image/')
+                        or item.media_content_type == 'image'
+                    )
                 )
             else:
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
-                    content_filter=lambda item: item.media_content_type.startswith('image/')
+                    content_filter=lambda item: item.media_content_type and (
+                        item.media_content_type.startswith('image/')
+                        or item.media_content_type == 'image'
+                    )
                 )
         except Exception as err:
             _LOGGER.error("Error browsing media: %s", str(err))
