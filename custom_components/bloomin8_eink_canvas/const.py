@@ -56,12 +56,12 @@ FILL_MODE_AUTO = "auto"
 # Default image processing settings
 DEFAULT_ORIENTATION = ORIENTATION_PORTRAIT
 DEFAULT_FILL_MODE = FILL_MODE_AUTO
-DEFAULT_CONTAIN_COLOR = "#FFFFFF"
+DEFAULT_CONTAIN_COLOR = "white"
 
-# Background colors for contain mode
+# Background colors for contain mode (key must be lowercase alphanumeric for HA translations)
 CONTAIN_COLORS = {
-    "#FFFFFF": "White",
-    "#000000": "Black",
+    "white": "#FFFFFF",
+    "black": "#000000",
 }
 
 # Error messages

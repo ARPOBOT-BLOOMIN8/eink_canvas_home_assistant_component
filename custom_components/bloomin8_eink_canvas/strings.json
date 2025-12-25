@@ -60,8 +60,8 @@
         },
         "contain_color": {
             "options": {
-                "#FFFFFF": "White",
-                "#000000": "Black"
+                "white": "White",
+                "black": "Black"
             }
         }
     }

@@ -41,6 +41,7 @@ from .const import (
     DEFAULT_ORIENTATION,
     DEFAULT_FILL_MODE,
     DEFAULT_CONTAIN_COLOR,
+    CONTAIN_COLORS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -394,7 +395,9 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         if actual_fill_mode == FILL_MODE_COVER:
             processed = self._cover_image(image, target_width, target_height)
         else:  # FILL_MODE_CONTAIN
-            bg_color = self._hex_to_rgb(contain_color)
+            # Convert color key (e.g., "white") to hex value (e.g., "#FFFFFF")
+            hex_color = CONTAIN_COLORS.get(contain_color, "#FFFFFF")
+            bg_color = self._hex_to_rgb(hex_color)
             processed = self._contain_image(image, target_width, target_height, bg_color)
 
         # If landscape orientation, rotate 90° clockwise to make it portrait for API
