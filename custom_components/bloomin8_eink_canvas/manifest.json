@@ -1,7 +1,7 @@
 {
     "domain": "bloomin8_eink_canvas",
     "name": "BLOOMIN8 E-Ink Canvas",
-    "codeowners": [],
+    "codeowners": ["@ARPOBOT-BLOOMIN8"],
     "config_flow": true,
     "dependencies": [],
     "documentation": "https://bloomin8.readme.io",
