@@ -9,6 +9,7 @@
     ],
     "codeowners": ["@ARPOBOT-BLOOMIN8"],
     "config_flow": true,
+    "after_dependencies": ["bluetooth"],
     "dependencies": [],
     "documentation": "https://bloomin8.readme.io",
     "homekit": {},
