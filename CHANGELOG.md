@@ -34,6 +34,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - When polling is disabled, entities update from cached runtime data after a manual refresh (service/button).
 - Config flow: if a BLE address is configured, send a BLE wake signal and wait ~10 seconds before validating the IP connection.
 - `enable_polling` now uses a safe interval derived from the device's `max_idle` (polling interval is always > max_idle), so polling should not keep the device awake.
+- Reduce log noise when the Canvas is asleep/offline: scheduled polling no longer spams ERROR logs for missing `/deviceInfo` responses.
 - `manifest.json`: declare Bluetooth discovery matcher for Bloomin8 service UUID.
 - Internals: centralize `/deviceInfo` fetching via a shared `DataUpdateCoordinator` to avoid one HTTP call per entity.
 - Internals: sensors and the media player consume coordinator snapshots; action-driven operations can push a fresh snapshot to update entities immediately.
