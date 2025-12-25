@@ -11,6 +11,7 @@ For low-power/deep-sleep devices we support running with polling disabled:
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from datetime import timedelta
 from typing import Any
 
@@ -75,6 +76,53 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         )
         self._api = api_client
         self._safe_polling = bool(safe_polling)
+        self._last_offline_info_log: datetime | None = None
+
+    async def _handle_refresh(self, _now: Any) -> None:
+        """Handle scheduled refreshes.
+
+        The Canvas is expected to be offline/asleep much of the time.
+        Scheduled polling should therefore *not* spam ERROR logs.
+        """
+        # Prefer the upstream implementation, but disable failure logging.
+        # In Home Assistant this method typically delegates to an internal
+        # refresh helper that accepts `log_failures`.
+        parent_async_refresh = getattr(super(), "_async_refresh", None)
+        if parent_async_refresh is not None:
+            try:
+                await parent_async_refresh(log_failures=False)
+                return
+            except TypeError:
+                # Older HA version with different signature.
+                pass
+
+        # Fallback path for older/unknown HA versions.
+        # Keep behavior similar but avoid error spam for expected sleep/offline.
+        try:
+            data = await self._async_update_data()
+        except UpdateFailed as err:
+            self.last_update_success = False
+            # Throttled info to avoid log spam.
+            now = datetime.now()
+            if (
+                self._last_offline_info_log is None
+                or (now - self._last_offline_info_log).total_seconds() >= 1800
+            ):
+                self._last_offline_info_log = now
+                self.logger.info(
+                    "Polling: device asleep/offline (expected): %s",
+                    err,
+                )
+            else:
+                self.logger.debug("Polling: device asleep/offline (expected): %s", err)
+        except Exception:
+            self.last_update_success = False
+            self.logger.exception("Unexpected error fetching %s data", self.name)
+        else:
+            self.data = data
+            self.last_update_success = True
+        finally:
+            self.async_update_listeners()
 
     async def _async_update_data(self) -> dict[str, Any] | None:
         """Fetch the latest device info snapshot.
@@ -84,6 +132,7 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         data = await self._api.get_device_info(wake=False)
         if data is None:
             # Treat absence of data as a failed update so entities become unavailable.
+            # Note: scheduled polling suppresses ERROR logs in _handle_refresh.
             raise UpdateFailed("Device did not respond to /deviceInfo")
 
         # If polling is enabled, adapt the interval based on current device settings.
