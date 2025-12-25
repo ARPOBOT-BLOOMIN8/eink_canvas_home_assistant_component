@@ -1,6 +1,13 @@
 {
     "domain": "bloomin8_eink_canvas",
     "name": "BLOOMIN8 E-Ink Canvas",
+    "after_dependencies": ["bluetooth"],
+    "bluetooth": [
+        {
+            "connectable": true,
+            "service_uuid": "0000f000-0000-1000-8000-00805f9b34fb"
+        }
+    ],
     "codeowners": ["@ARPOBOT-BLOOMIN8"],
     "config_flow": true,
     "dependencies": [],
@@ -10,5 +17,5 @@
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/ARPOBOT-BLOOMIN8/eink_canvas_home_assistant_component/issues",
     "requirements": ["aiohttp", "Pillow"],
-    "version": "1.6.0"
+    "version": "1.8.3"
 }

@@ -17,6 +17,20 @@ Use it to:
   * Connect it to your WiFi network.
   * **Grab the IP address.** You'll need this.
 
+### Optional: Bluetooth wake in Home Assistant (recommended for Deep Sleep)
+
+If your Canvas often sleeps (Deep Sleep) or is not reachable via IP right away, you can optionally set up Bluetooth wake inside Home Assistant:
+
+  * **BLE Wake Button (optional):** If you configure the device's Bluetooth MAC address, Home Assistant will expose a **Wake (Bluetooth)** button entity.
+  * **Auto-wake before HTTP actions (optional):** Enable `ble_auto_wake` to let the integration try a best-effort BLE wake **before sending HTTP API commands**.
+
+Requirements:
+
+  * Home Assistant Bluetooth (local adapter) **or** ESPHome Bluetooth proxies
+  * A connectable BLE device in Home Assistant's Bluetooth cache
+
+Tip: The Mobile App Bluetooth wake is still useful as a quick fallback if you just need to wake it once.
+
 ### 2\. Install the Integration
 
 <!-- The easy way (HACS), which you should totally do:
@@ -44,21 +58,48 @@ The manual way (if you like living on the edge): -->
 
 ### 🛠️ Available Services
 
+All integration services are available under the domain `bloomin8_eink_canvas`:
 
 #### System Control
 
-  * `eink_display.show_next`: Flips to the next image in the gallery.
-  * `eink_display.sleep`: Puts the device to sleep. Sweet dreams.
-  * `eink_display.reboot`: The classic "turn it off and on again."
-  * `eink_display.clear_screen`: Wipes the screen to a clean slate.
-  * `eink_display.whistle`: Wakes the device up or keeps it from falling asleep.
-  * `eink_display.update_settings`: Change device settings like sleep duration on the fly.
-  * `eink_display.refresh_device_info`: Forces a poll for the latest device status.
+  * `bloomin8_eink_canvas.show_next`: Display the next image in the current gallery or playlist.
+  * `bloomin8_eink_canvas.sleep`: Put the device into sleep mode.
+  * `bloomin8_eink_canvas.reboot`: Restart the device.
+  * `bloomin8_eink_canvas.clear_screen`: Clear the display screen.
+  * `bloomin8_eink_canvas.whistle`: Send a wake/keep-alive signal.
+  * `bloomin8_eink_canvas.refresh_device_info`: Manually refresh and update device information.
+  * `bloomin8_eink_canvas.update_settings`: Update device settings (sleep duration, idle time, wake sensitivity, name).
 
-#### Image & Gallery Management
+#### Image (Upload / Delete)
 
-  * `media_player.play_media`: The main service for sending a new image to the display.
-  * **Media Browser:** Browse your device's galleries or upload new images directly from the Home Assistant media browser. It's slick.
+  * `bloomin8_eink_canvas.upload_image_url`: Download an image from a URL, convert to JPEG, optionally process for screen, upload, optionally show immediately.
+  * `bloomin8_eink_canvas.upload_image_data`: Upload base64-encoded image bytes, convert to JPEG, optionally process for screen.
+  * `bloomin8_eink_canvas.upload_images_multi`: Batch upload multiple images in one request.
+  * `bloomin8_eink_canvas.upload_dithered_image_data`: Upload pre-processed dithered raw image data (advanced).
+  * `bloomin8_eink_canvas.delete_image`: Delete a specific image from a gallery.
+
+#### Gallery
+
+  * `bloomin8_eink_canvas.create_gallery`: Create a new empty gallery.
+  * `bloomin8_eink_canvas.delete_gallery`: Delete a gallery and all contained images.
+  * `bloomin8_eink_canvas.list_galleries`: List galleries on the device (may return a service response depending on Home Assistant version).
+
+#### Playlist
+
+  * `bloomin8_eink_canvas.show_playlist`: Start playlist playback on the device.
+  * `bloomin8_eink_canvas.put_playlist`: Create or overwrite a playlist definition.
+  * `bloomin8_eink_canvas.delete_playlist`: Delete a playlist.
+  * `bloomin8_eink_canvas.list_playlists`: List playlists (may return a service response depending on Home Assistant version).
+  * `bloomin8_eink_canvas.get_playlist`: Get one playlist definition (may return a service response depending on Home Assistant version).
+
+#### Home Assistant standard services (optional)
+
+These are Home Assistant core services (not `bloomin8_eink_canvas.*`), but they work well with this integration:
+
+  * `media_player.play_media`: Send an image to the Canvas via the media player entity.
+  * `button.press`: Press button entities exposed by the integration (e.g., Sleep, Refresh Info, Wake Bluetooth).
+
+**Media Browser:** Browse your device's galleries or upload new images directly from the Home Assistant media browser. It's slick.
 
 
 **Display a new family photo every morning:**
@@ -87,7 +128,20 @@ Here are some ideas our team cooked up:
   * **Evening Wind-down:** Switch to calm, minimalist art when your "Goodnight" scene runs.
   * **Smart Sleep:** Automatically adjust sleep duration based on season or schedule.
   * **Storage Monitoring:** Get notified when storage is running low.
-  * **Auto-refresh:** Periodically refresh device info to keep status current.
+  * **Auto-refresh:** If you enable polling, Home Assistant can periodically refresh device info to keep status current.
+
+-----
+
+## Power saving / Polling
+
+**Polling kann ein Gerät wach halten – daher ist es hier absichtlich "safe" implementiert.**
+
+By default, `enable_polling` is **disabled** so the Canvas can sleep (Deep Sleep) and save power/battery.
+
+If you want state updates without preventing sleep:
+
+  * Use the **Refresh Info** button or call `bloomin8_eink_canvas.refresh_device_info` (recommended for low power).
+  * Or enable `enable_polling` in the integration configuration: the integration will poll using an interval **larger than the device's Max Idle Time** so it should **not** keep the Canvas awake.
 
 -----
 
@@ -106,7 +160,7 @@ Here are some ideas our team cooked up:
 
 **Status not updating?**
   * Make sure your device is awake.
-  * Try pressing the **Refresh Info** button or calling the `eink_display.refresh_device_info` service.
+  * Try pressing the **Refresh Info** button or calling the `bloomin8_eink_canvas.refresh_device_info` service.
   * Check the **Device Info** sensor for connection status.
   * Restart the integration (or HA itself).
 
@@ -116,7 +170,7 @@ Here are some ideas our team cooked up:
 logger:
   default: warning
   logs:
-    custom_components.eink_display: debug
+    custom_components.bloomin8_eink_canvas: debug
 ```
 
 

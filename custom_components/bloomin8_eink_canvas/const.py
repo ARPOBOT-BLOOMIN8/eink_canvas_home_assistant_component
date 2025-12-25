@@ -45,6 +45,27 @@ CONF_ORIENTATION = "orientation"
 CONF_FILL_MODE = "fill_mode"
 CONF_CONTAIN_COLOR = "contain_color"
 
+# Optional Bluetooth wake configuration
+CONF_MAC_ADDRESS = "mac_address"
+
+# If enabled, the integration will try to wake the device via BLE (using mac_address)
+# before sending HTTP API commands.
+CONF_BLE_AUTO_WAKE = "ble_auto_wake"
+DEFAULT_BLE_AUTO_WAKE = False
+
+# Power / polling behavior
+# If disabled, entities will avoid periodic HTTP polling so the device can sleep.
+CONF_ENABLE_POLLING = "enable_polling"
+
+# Dispatcher signal base for notifying entities that cached runtime data changed.
+# Entities use: f"{SIGNAL_DEVICE_INFO_UPDATED}_{entry_id}".
+SIGNAL_DEVICE_INFO_UPDATED = f"{DOMAIN}_device_info_updated"
+
+# Confirmed BLE details from reverse engineering (mistrsoft/bloomin8_bt_wake)
+BLE_SERVICE_UUID = "0000f000-0000-1000-8000-00805f9b34fb"
+BLE_CHAR_UUID = "0000f001-0000-1000-8000-00805f9b34fb"
+BLE_WAKE_PAYLOAD = b"\x01"
+
 # Image processing options
 ORIENTATION_PORTRAIT = "portrait"
 ORIENTATION_LANDSCAPE = "landscape"
