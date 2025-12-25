@@ -4,13 +4,14 @@ from __future__ import annotations
 import logging
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN, DEFAULT_NAME
+from .const import DOMAIN, DEFAULT_NAME, CONF_MAC_ADDRESS, BLE_CHAR_UUID, BLE_WAKE_PAYLOAD
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ async def async_setup_entry(
     """Set up the BLOOMIN8 E-Ink Canvas buttons."""
     host = config_entry.data[CONF_HOST]
     name = config_entry.data.get(CONF_NAME, DEFAULT_NAME)
+    mac_address = (config_entry.data.get(CONF_MAC_ADDRESS) or "").strip()
 
     buttons = [
         EinkNextImageButton(hass, config_entry, host, name),
@@ -30,6 +32,10 @@ async def async_setup_entry(
         EinkWhistleButton(hass, config_entry, host, name),
         EinkRefreshButton(hass, config_entry, host, name),
     ]
+
+    # Optional BLE wake button (requires a configured Bluetooth MAC address)
+    if mac_address:
+        buttons.append(EinkBluetoothWakeButton(hass, config_entry, host, name, mac_address))
 
     async_add_entities(buttons, True)
 
@@ -158,3 +164,54 @@ class EinkRefreshButton(EinkBaseButton):
             {},
             blocking=True,
         )
+
+
+class EinkBluetoothWakeButton(EinkBaseButton):
+    """Button to wake the device via Bluetooth Low Energy (BLE)."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        host: str,
+        device_name: str,
+        mac_address: str,
+    ) -> None:
+        """Initialize the button."""
+        super().__init__(hass, config_entry, host, device_name)
+        self._mac = mac_address
+        self._attr_name = "Wake (Bluetooth)"
+        self._attr_unique_id = f"eink_display_{host}_bt_wake"
+        self._attr_icon = "mdi:bluetooth-connect"
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        # Resolve BLEDevice from HA Bluetooth integration cache
+        device = async_ble_device_from_address(self.hass, self._mac, connectable=True)
+        if not device:
+            _LOGGER.warning(
+                "Bluetooth device %s not found in HA Bluetooth cache or not connectable",
+                self._mac,
+            )
+            return
+
+        # Import bleak lazily to avoid hard dependency during import/tests
+        try:
+            from bleak import BleakClient  # type: ignore
+        except ImportError:
+            _LOGGER.error(
+                "Cannot send BLE wake signal because 'bleak' is not available in this environment"
+            )
+            return
+
+        _LOGGER.info("Sending BLE wake signal to %s", self._mac)
+        try:
+            async with BleakClient(device) as client:
+                if not client.is_connected:
+                    _LOGGER.error("Failed to connect to %s", self._mac)
+                    return
+
+                await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
+                _LOGGER.info("BLE wake signal sent successfully")
+        except Exception as err:
+            _LOGGER.error("Failed to send BLE wake signal to %s: %s", self._mac, err)

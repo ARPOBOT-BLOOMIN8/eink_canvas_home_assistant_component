@@ -20,10 +20,12 @@ from homeassistant.components.media_player import (
 from homeassistant.components import media_source
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.media_player.browse_media import (
     async_process_play_media_url,
 )
@@ -31,6 +33,7 @@ from homeassistant.components.media_player.browse_media import (
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
+    SIGNAL_DEVICE_INFO_UPDATED,
     CONF_ORIENTATION,
     CONF_FILL_MODE,
     CONF_CONTAIN_COLOR,
@@ -56,10 +59,12 @@ async def async_setup_entry(
     host = config_entry.data[CONF_HOST]
     name = config_entry.data.get(CONF_NAME, DEFAULT_NAME)
 
-    async_add_entities([EinkDisplayMediaPlayer(hass, config_entry, host, name)], True)
+    coordinator = config_entry.runtime_data.coordinator
+
+    async_add_entities([EinkDisplayMediaPlayer(coordinator, hass, config_entry, host, name)], True)
 
 
-class EinkDisplayMediaPlayer(MediaPlayerEntity):
+class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     """BLOOMIN8 E-Ink Canvas media player for displaying images."""
 
     _attr_supported_features = (
@@ -70,8 +75,16 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         MediaPlayerEntityFeature.TURN_OFF
     )
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, name: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        host: str,
+        name: str,
+    ) -> None:
         """Initialize the media player."""
+        super().__init__(coordinator)
         self.hass = hass
         self._config_entry = config_entry
         self._host = host
@@ -85,6 +98,81 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         self._device_info = None
         self._screen_width = None
         self._screen_height = None
+        # Updates are driven by the shared coordinator (if polling enabled) or by
+        # action-driven refreshes that push new snapshots into the coordinator.
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+        self._signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{config_entry.entry_id}"
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added."""
+        await super().async_added_to_hass()
+
+        # Keep the legacy dispatcher for non-coordinator update paths.
+        # (Thread-safety: schedule_update_ha_state is safe.)
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            self._signal,
+            self._handle_runtime_data_updated,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up callbacks."""
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        """Handle runtime data updates (no network I/O)."""
+        # Thread-safety: use sync helper safe from any thread.
+        self.schedule_update_ha_state(False)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle coordinator updates (no network I/O)."""
+        runtime_data = self._config_entry.runtime_data
+        self._apply_device_info(self.coordinator.data or runtime_data.device_info, notify=False)
+        super()._handle_coordinator_update()
+
+    def _apply_device_info(self, device_info: dict | None, *, notify: bool) -> None:
+        """Apply device info to entity and shared runtime data."""
+        runtime_data = self._config_entry.runtime_data
+
+        if device_info:
+            self._device_info = device_info
+            self._attr_state = MediaPlayerState.ON
+
+            # Store screen resolution on first update
+            if self._screen_width is None and self._screen_height is None:
+                self._screen_width = device_info.get("width", 1200)
+                self._screen_height = device_info.get("height", 1600)
+                _LOGGER.info(
+                    "Detected screen resolution: %dx%d",
+                    self._screen_width,
+                    self._screen_height,
+                )
+
+            runtime_data.device_info = device_info
+        else:
+            self._attr_state = MediaPlayerState.OFF
+            self._device_info = None
+
+        if notify:
+            async_dispatcher_send(self.hass, self._signal)
+
+    async def _async_fetch_device_info(self) -> None:
+        """Fetch device info from device on-demand (even if polling is disabled)."""
+        runtime_data = self._config_entry.runtime_data
+        api_client = runtime_data.api_client
+
+        # On-demand fetch is user/action-driven: allow BLE wake.
+        device_info = await api_client.get_device_info(wake=True)
+        # Push snapshot into coordinator so other entities update even when
+        # periodic polling is disabled.
+        runtime_data.coordinator.async_set_updated_data(device_info)
+        self._apply_device_info(device_info, notify=True)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -129,30 +217,9 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         return image_path.split("/")[-1] if "/" in image_path else image_path
 
     async def async_update(self) -> None:
-        """Update device state and information."""
+        """Update entity state from cached coordinator/runtime data (no I/O)."""
         runtime_data = self._config_entry.runtime_data
-        api_client = runtime_data.api_client
-
-        device_info = await api_client.get_device_info()
-        if device_info:
-            self._device_info = device_info
-            self._attr_state = MediaPlayerState.ON
-
-            # Store screen resolution on first update
-            if self._screen_width is None and self._screen_height is None:
-                self._screen_width = device_info.get("width", 1200)
-                self._screen_height = device_info.get("height", 1600)
-                _LOGGER.info(
-                    "Detected screen resolution: %dx%d",
-                    self._screen_width,
-                    self._screen_height
-                )
-
-            # Update shared runtime data
-            runtime_data.device_info = device_info
-        else:
-            self._attr_state = MediaPlayerState.OFF
-            self._device_info = None
+        self._apply_device_info(self.coordinator.data or runtime_data.device_info, notify=False)
 
     async def async_turn_on(self) -> None:
         """Turn on the device (send whistle)."""
@@ -201,11 +268,11 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 )
 
                 media_id = async_process_play_media_url(self.hass, play_item.url)
-                _LOGGER.info("Using media URL: %s", media_id)
+                _LOGGER.debug("Using media URL: %s", media_id)
 
             # Ensure we have screen resolution
             if self._screen_width is None or self._screen_height is None:
-                await self.async_update()
+                await self._async_fetch_device_info()
 
             if self._screen_width is None or self._screen_height is None:
                 await self._add_log("Failed to detect screen resolution", "error")
@@ -218,7 +285,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                     await self._add_log(f"Successfully displayed image via /show API: {media_id}")
                 else:
                     await self._add_log(f"Failed to show image: {media_id}", "error")
-                await self.async_update()
+                await self._async_fetch_device_info()
                 return
 
             # Handle external images - upload and show
@@ -251,11 +318,11 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 await self._add_log(f"Failed to show uploaded image: {filename}", "error")
 
             # Refresh device info
-            await self.async_update()
+            await self._async_fetch_device_info()
 
         except Exception as err:
             await self._add_log(f"Error playing media: {str(err)}", "error")
-            _LOGGER.error("Error playing media: %s", str(err))
+            _LOGGER.exception("Error playing media: %s", err)
 
     async def _load_image_data(self, media_id: str) -> bytes | None:
         """Load image data from file or URL."""
@@ -283,14 +350,14 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         """Process image for e-ink display with orientation and fill mode support."""
         try:
             image = Image.open(BytesIO(image_data))
-            _LOGGER.info("Processing image: %s, size: %s", image.format, image.size)
+            _LOGGER.debug("Processing image: %s, size: %s", image.format, image.size)
 
             # Get configuration
             orientation = self._config_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION)
             fill_mode = self._config_entry.data.get(CONF_FILL_MODE, DEFAULT_FILL_MODE)
             contain_color = self._config_entry.data.get(CONF_CONTAIN_COLOR, DEFAULT_CONTAIN_COLOR)
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Image processing config - orientation: %s, fill_mode: %s, contain_color: %s",
                 orientation, fill_mode, contain_color
             )
@@ -318,7 +385,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             return await self.hass.async_add_executor_job(save_image)
 
         except Exception as err:
-            _LOGGER.error("Error processing image: %s", err)
+            _LOGGER.exception("Error processing image: %s", err)
             return None
 
     def _convert_to_rgb(self, image: Image.Image) -> Image.Image:
@@ -339,7 +406,11 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         if len(hex_color) != 6:
             return (255, 255, 255)  # Default to white
         try:
-            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            return (
+                int(hex_color[0:2], 16),
+                int(hex_color[2:4], 16),
+                int(hex_color[4:6], 16),
+            )
         except ValueError:
             return (255, 255, 255)
 
@@ -356,8 +427,8 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         we create a landscape-oriented image then rotate it 90° clockwise.
         """
         # Screen resolution (always portrait from device)
-        screen_width = self._screen_width   # e.g., 1200
-        screen_height = self._screen_height  # e.g., 1600
+        screen_width = self._screen_width or 1200   # e.g., 1200
+        screen_height = self._screen_height or 1600  # e.g., 1600
 
         # Determine canvas dimensions based on orientation
         canvas_is_landscape = (orientation == ORIENTATION_LANDSCAPE)
@@ -382,7 +453,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         else:
             actual_fill_mode = fill_mode
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Processing: image %dx%d (%s), canvas %dx%d (%s), fill_mode: %s -> %s",
             image.width, image.height,
             "landscape" if image_is_landscape else "portrait",
@@ -403,9 +474,9 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         # If landscape orientation, rotate 90° clockwise to make it portrait for API
         if canvas_is_landscape:
             processed = processed.rotate(-90, expand=True)
-            _LOGGER.info("Rotated image for landscape display: %dx%d", processed.width, processed.height)
+            _LOGGER.debug("Rotated image for landscape display: %dx%d", processed.width, processed.height)
 
-        _LOGGER.info("Final processed image size: %dx%d", processed.width, processed.height)
+        _LOGGER.debug("Final processed image size: %dx%d", processed.width, processed.height)
         return processed
 
     def _cover_image(
