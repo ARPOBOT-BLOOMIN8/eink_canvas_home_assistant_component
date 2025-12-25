@@ -6,11 +6,12 @@ import logging
 from homeassistant.components.text import TextEntity, TextMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN, DEFAULT_NAME
+from .const import DOMAIN, DEFAULT_NAME, SIGNAL_DEVICE_INFO_UPDATED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -47,6 +48,33 @@ class EinkDeviceNameText(TextEntity):
         self._attr_native_min = 1
         self._attr_native_max = 50
         self._attr_entity_category = EntityCategory.CONFIG
+        # Never poll directly; we update from shared coordinator/runtime cache.
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added."""
+        await super().async_added_to_hass()
+
+        signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{self._config_entry.entry_id}"
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            signal,
+            self._handle_runtime_data_updated,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up callbacks."""
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        """Handle runtime data updates (no network I/O)."""
+        # Thread-safety: use sync helper safe from any thread.
+        self.schedule_update_ha_state(False)
 
     @property
     def device_info(self) -> DeviceInfo:

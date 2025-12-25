@@ -74,4 +74,310 @@ update_settings:
         number:
           min: 1
           max: 10
-          step: 1 
+          step: 1
+
+upload_image_url:
+  name: Upload Image from URL
+  description: >
+    Download an image from a web URL, convert it to JPEG (and optionally resize/crop to the device
+    resolution), upload it to the device and optionally show it immediately.
+  fields:
+    url:
+      name: Image URL
+      description: Publicly reachable URL of the image to display
+      required: true
+      example: "https://example.com/picture.png"
+      selector:
+        text:
+          type: url
+    filename:
+      name: Filename (optional)
+      description: >
+        Filename to store on the device (defaults to name derived from URL).
+        Note: the device firmware may reject spaces/special characters; the integration will
+        sanitize the name (e.g. spaces -> underscores) and enforce a .jpg extension.
+      required: false
+      example: "my_picture.jpg"
+      selector:
+        text:
+          type: text
+    gallery:
+      name: Gallery
+      description: Destination gallery on the device
+      required: false
+      default: "default"
+      example: "default"
+      selector:
+        text:
+          type: text
+    show_now:
+      name: Show immediately
+      description: If enabled, the device will display the image immediately after upload
+      required: false
+      default: true
+      selector:
+        boolean: {}
+    process:
+      name: Process for screen
+      description: Resize/crop the image to the device resolution using the integration settings
+      required: false
+      default: true
+      selector:
+        boolean: {}
+
+upload_image_data:
+  name: Upload Image Data (Base64)
+  description: >
+    Upload an image provided as base64-encoded bytes. The integration will convert it to JPEG.
+    Optionally, it can also resize/crop to the device resolution.
+  fields:
+    image_data:
+      name: Image data (base64)
+      description: Base64-encoded image bytes (PNG/JPEG/etc.)
+      required: true
+      selector:
+        text:
+          type: text
+          multiline: true
+    filename:
+      name: Filename (optional)
+      description: >
+        Filename to store on the device (defaults to a timestamped name).
+        Note: the integration will sanitize the name and enforce a .jpg extension.
+      required: false
+      example: "ha_image.jpg"
+      selector:
+        text:
+          type: text
+    gallery:
+      name: Gallery
+      description: Destination gallery on the device
+      required: false
+      default: "default"
+      selector:
+        text:
+          type: text
+    show_now:
+      name: Show immediately
+      description: If enabled, the device will display the image immediately after upload
+      required: false
+      default: true
+      selector:
+        boolean: {}
+    process:
+      name: Process for screen
+      description: Resize/crop the image to the device resolution using the integration settings
+      required: false
+      default: true
+      selector:
+        boolean: {}
+
+upload_images_multi:
+  name: Upload Multiple Images (Batch)
+  description: >
+    Upload multiple images in a single request using /image/uploadMulti.
+    Each item in "images" must be an object with either:
+      - url + optional filename
+      - image_data (base64) + optional filename
+    The integration converts to JPEG and can optionally resize/crop to the device resolution.
+  fields:
+    images:
+      name: Images
+      description: >
+        A list of image objects (recommended) OR a single image object.
+        Examples:
+        - {url: "https://example.com/a.png", filename: "a.jpg"}
+        - {image_data: "<base64>", filename: "b.jpg"}
+      required: true
+      selector:
+        object: {}
+    gallery:
+      name: Gallery
+      description: Destination gallery on the device
+      required: false
+      default: "default"
+      selector:
+        text:
+          type: text
+    override:
+      name: Override existing files
+      description: If enabled, overwrite files with the same name
+      required: false
+      default: false
+      selector:
+        boolean: {}
+    process:
+      name: Process for screen
+      description: Resize/crop each image to the device resolution using the integration settings
+      required: false
+      default: true
+      selector:
+        boolean: {}
+
+upload_dithered_image_data:
+  name: Upload Dithered Image Data (Base64)
+  description: >
+    Upload pre-processed, dithered raw image data for advanced direct-to-screen rendering.
+    (Advanced: you must provide compatible dithered data.)
+  fields:
+    filename:
+      name: Filename
+      description: A unique name for the data file
+      required: true
+      example: "my_image.bin"
+      selector:
+        text:
+          type: text
+    dithered_image_data:
+      name: Dithered image data (base64)
+      description: Base64-encoded binary data of the dithered image
+      required: true
+      selector:
+        text:
+          type: text
+          multiline: true
+
+delete_image:
+  name: Delete Image
+  description: Delete a specific image from a gallery on the device.
+  fields:
+    filename:
+      name: Filename
+      description: Filename of the image to delete (e.g. "my_picture.jpg")
+      required: true
+      selector:
+        text:
+          type: text
+    gallery:
+      name: Gallery
+      description: Gallery containing the image
+      required: false
+      default: "default"
+      selector:
+        text:
+          type: text
+
+create_gallery:
+  name: Create Gallery
+  description: Create a new empty gallery on the device.
+  fields:
+    name:
+      name: Gallery Name
+      description: Name of the new gallery
+      required: true
+      selector:
+        text:
+          type: text
+
+delete_gallery:
+  name: Delete Gallery
+  description: Delete a gallery and all contained images.
+  fields:
+    name:
+      name: Gallery Name
+      description: Name of the gallery to delete
+      required: true
+      selector:
+        text:
+          type: text
+
+list_galleries:
+  name: List Galleries
+  description: List galleries on the device (GET /gallery/list). If the Home Assistant version supports service responses, the list will be returned.
+  fields: {}
+
+show_playlist:
+  name: Start Playlist Playback
+  description: Start playback of a playlist on the device via the /show API (play_type=2).
+  fields:
+    playlist:
+      name: Playlist
+      description: Playlist name to play
+      required: true
+      selector:
+        text:
+          type: text
+    image:
+      name: Image (optional)
+      description: Optional image path to show immediately (e.g. /gallerys/default/f1.jpg)
+      required: false
+      selector:
+        text:
+          type: text
+    dither:
+      name: Dither (optional)
+      description: Optional dithering algorithm (0=Floyd-Steinberg, 1=JJN)
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 1
+          step: 1
+
+put_playlist:
+  name: Create/Modify Playlist
+  description: >
+    Create a new playlist or overwrite an existing one. "items" must be a list of objects.
+    Each item should contain at least "name" (image path) and either "duration" (for type=duration)
+    or "time" (for type=time).
+  fields:
+    name:
+      name: Playlist Name
+      required: true
+      selector:
+        text:
+          type: text
+    type:
+      name: Type
+      description: Playlist mode
+      required: true
+      selector:
+        select:
+          options:
+            - "duration"
+            - "time"
+    time_offset:
+      name: Time Offset (seconds)
+      description: Only used for type=time
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          step: 1
+          unit_of_measurement: "seconds"
+    items:
+      name: Items
+      description: >
+        List of playlist items (advanced). In YAML, pass a list of objects.
+        Example item: {name: "/gallerys/default/f1.jpg", duration: 40}
+      required: true
+      selector:
+        object: {}
+
+delete_playlist:
+  name: Delete Playlist
+  description: Delete a playlist.
+  fields:
+    name:
+      name: Playlist Name
+      required: true
+      selector:
+        text:
+          type: text
+
+list_playlists:
+  name: List Playlists
+  description: List playlists on the device (GET /playlist/list). If the Home Assistant version supports service responses, the list will be returned.
+  fields: {}
+
+get_playlist:
+  name: Get Playlist
+  description: Get a playlist definition (GET /playlist?name=...). If the Home Assistant version supports service responses, the playlist JSON will be returned.
+  fields:
+    name:
+      name: Playlist Name
+      required: true
+      selector:
+        text:
+          type: text

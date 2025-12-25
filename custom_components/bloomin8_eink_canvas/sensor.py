@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from homeassistant.components.sensor import (
     SensorEntity,
@@ -10,13 +11,17 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, PERCENTAGE, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
+    CONF_ENABLE_POLLING,
+    SIGNAL_DEVICE_INFO_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -30,30 +35,47 @@ async def async_setup_entry(
     host = config_entry.data[CONF_HOST]
     name = config_entry.data.get(CONF_NAME, DEFAULT_NAME)
 
+    coordinator = config_entry.runtime_data.coordinator
+
     sensors = [
-        EinkDeviceInfoSensor(hass, config_entry, host, name),
-        EinkBatterySensor(hass, config_entry, host, name),
-        EinkStorageSensor(hass, config_entry, host, name),
-        EinkCurrentImageSensor(hass, config_entry, host, name),
+        EinkDeviceInfoSensor(coordinator, hass, config_entry, host, name),
+        EinkBatterySensor(coordinator, hass, config_entry, host, name),
+        EinkStorageSensor(coordinator, hass, config_entry, host, name),
+        EinkCurrentImageSensor(coordinator, hass, config_entry, host, name),
         EinkLogSensor(hass, config_entry, host, name),
-        EinkFirmwareVersionSensor(hass, config_entry, host, name),
-        EinkWifiSSIDSensor(hass, config_entry, host, name),
-        EinkScreenResolutionSensor(hass, config_entry, host, name),
+        EinkFirmwareVersionSensor(coordinator, hass, config_entry, host, name),
+        EinkWifiSSIDSensor(coordinator, hass, config_entry, host, name),
+        EinkScreenResolutionSensor(coordinator, hass, config_entry, host, name),
     ]
 
     async_add_entities(sensors, True)
 
 
-class EinkBaseSensor(SensorEntity):
-    """Base class for BLOOMIN8 E-Ink Canvas sensors."""
+class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
+    """Base class for device-info sensors backed by the coordinator."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
-        """Initialize the sensor."""
+    def __init__(
+        self,
+        coordinator,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        host: str,
+        device_name: str,
+    ) -> None:
+        super().__init__(coordinator)
         self.hass = hass
         self._config_entry = config_entry
         self._host = host
         self._device_name = device_name
         self._attr_has_entity_name = True
+        # Coordinator drives updates.
+        self._attr_should_poll = False
+
+    def _device_info_snapshot(self) -> dict[str, Any] | None:
+        # Prefer coordinator data; fall back to runtime cache (e.g. set by services).
+        if self.coordinator.data:
+            return self.coordinator.data
+        return self._config_entry.runtime_data.device_info
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -73,33 +95,34 @@ class EinkBaseSensor(SensorEntity):
 
     async def _fetch_device_info(self) -> dict | None:
         """Fetch device info directly from device using API client."""
+        if not self._attr_should_poll:
+            return None
+
         runtime_data = self._config_entry.runtime_data
         api_client = runtime_data.api_client
 
-        device_info = await api_client.get_device_info()
+        # Periodic polling should never wake the device via BLE.
+        device_info = await api_client.get_device_info(wake=False)
         if device_info:
             # Update shared runtime data
             runtime_data.device_info = device_info
         return device_info
 
 
-class EinkDeviceInfoSensor(EinkBaseSensor):
+class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
     """Device information sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Device Info"
         self._attr_unique_id = f"eink_display_{host}_device_info"
         self._attr_icon = "mdi:information"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-        
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
         if device_info:
             self._attr_native_value = "Online"
             self._attr_extra_state_attributes = {
@@ -123,13 +146,15 @@ class EinkDeviceInfoSensor(EinkBaseSensor):
             self._attr_native_value = "Offline"
             self._attr_extra_state_attributes = {}
 
+        super()._handle_coordinator_update()
 
-class EinkBatterySensor(EinkBaseSensor):
+
+class EinkBatterySensor(EinkBaseCoordinatorSensor):
     """Battery level sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Battery"
         self._attr_unique_id = f"eink_display_{host}_battery"
         self._attr_device_class = SensorDeviceClass.BATTERY
@@ -137,34 +162,26 @@ class EinkBatterySensor(EinkBaseSensor):
         self._attr_native_unit_of_measurement = PERCENTAGE
         self._attr_icon = "mdi:battery"
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-        
-        if device_info:
-            self._attr_native_value = device_info.get("battery", 0)
-        else:
-            self._attr_native_value = None
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
+        self._attr_native_value = device_info.get("battery", 0) if device_info else None
+        super()._handle_coordinator_update()
 
 
-class EinkStorageSensor(EinkBaseSensor):
+class EinkStorageSensor(EinkBaseCoordinatorSensor):
     """Storage usage sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Storage"
         self._attr_unique_id = f"eink_display_{host}_storage"
         self._attr_icon = "mdi:harddisk"
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-        
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
         if device_info:
             total_size = device_info.get("total_size", 0)
             free_size = device_info.get("free_size", 0)
@@ -208,23 +225,22 @@ class EinkStorageSensor(EinkBaseSensor):
             self._attr_native_value = "Offline"
             self._attr_extra_state_attributes = {}
 
+        super()._handle_coordinator_update()
 
-class EinkCurrentImageSensor(EinkBaseSensor):
+
+class EinkCurrentImageSensor(EinkBaseCoordinatorSensor):
     """Current image sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Current Image"
         self._attr_unique_id = f"eink_display_{host}_current_image"
         self._attr_icon = "mdi:image"
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-        
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
         if device_info and device_info.get("image"):
             image_path = device_info.get("image", "")
             image_name = image_path.split("/")[-1] if "/" in image_path else image_path
@@ -238,17 +254,54 @@ class EinkCurrentImageSensor(EinkBaseSensor):
             self._attr_native_value = "None"
             self._attr_extra_state_attributes = {}
 
+        super()._handle_coordinator_update()
 
-class EinkLogSensor(EinkBaseSensor):
+
+class EinkLogSensor(SensorEntity):
     """Log sensor."""
 
     def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        self.hass = hass
+        self._config_entry = config_entry
+        self._host = host
+        self._device_name = device_name
+        self._attr_has_entity_name = True
         self._attr_name = "Logs"
         self._attr_unique_id = f"eink_display_{host}_logs"
         self._attr_icon = "mdi:text-box"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{self._config_entry.entry_id}"
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            signal,
+            self._handle_runtime_data_updated,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        # Thread-safety: callback may be invoked from outside the event loop.
+        self.schedule_update_ha_state(False)
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, self._host)},
+            name=self._device_name,
+            manufacturer="BLOOMIN8",
+            model="E-Ink Canvas",
+        )
 
     async def async_update(self) -> None:
         """Update sensor state."""
@@ -277,46 +330,38 @@ class EinkLogSensor(EinkBaseSensor):
             self._attr_extra_state_attributes = {}
 
 
-class EinkFirmwareVersionSensor(EinkBaseSensor):
+class EinkFirmwareVersionSensor(EinkBaseCoordinatorSensor):
     """Firmware version sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Firmware Version"
         self._attr_unique_id = f"eink_display_{host}_firmware_version"
         self._attr_icon = "mdi:chip"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-        
-        if device_info:
-            self._attr_native_value = device_info.get("version", "Unknown")
-        else:
-            self._attr_native_value = "Offline"
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
+        self._attr_native_value = device_info.get("version", "Unknown") if device_info else "Offline"
+        super()._handle_coordinator_update()
 
 
-class EinkWifiSSIDSensor(EinkBaseSensor):
+class EinkWifiSSIDSensor(EinkBaseCoordinatorSensor):
     """WiFi SSID sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "WiFi SSID"
         self._attr_unique_id = f"eink_display_{host}_wifi_ssid"
         self._attr_icon = "mdi:wifi"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
         if device_info:
             self._attr_native_value = device_info.get("sta_ssid", "Unknown")
             self._attr_extra_state_attributes = {
@@ -326,25 +371,23 @@ class EinkWifiSSIDSensor(EinkBaseSensor):
         else:
             self._attr_native_value = "Offline"
             self._attr_extra_state_attributes = {}
+        super()._handle_coordinator_update()
 
 
-class EinkScreenResolutionSensor(EinkBaseSensor):
+class EinkScreenResolutionSensor(EinkBaseCoordinatorSensor):
     """Screen resolution sensor."""
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
         """Initialize the sensor."""
-        super().__init__(hass, config_entry, host, device_name)
+        super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Screen Resolution"
         self._attr_unique_id = f"eink_display_{host}_screen_resolution"
         self._attr_icon = "mdi:monitor-screenshot"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    async def async_update(self) -> None:
-        """Update sensor state."""
-        device_info = self._get_device_info()
-        if not device_info:
-            device_info = await self._fetch_device_info()
-
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        device_info = self._device_info_snapshot()
         if device_info:
             width = device_info.get("width", 0)
             height = device_info.get("height", 0)
@@ -369,3 +412,5 @@ class EinkScreenResolutionSensor(EinkBaseSensor):
         else:
             self._attr_native_value = "Unknown"
             self._attr_extra_state_attributes = {} 
+
+        super()._handle_coordinator_update()
