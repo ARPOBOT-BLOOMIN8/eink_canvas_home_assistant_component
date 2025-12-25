@@ -1,6 +1,7 @@
 {
     "domain": "bloomin8_eink_canvas",
     "name": "BLOOMIN8 E-Ink Canvas",
+    "after_dependencies": ["bluetooth"],
     "bluetooth": [
         {
             "connectable": true,
@@ -9,7 +10,6 @@
     ],
     "codeowners": ["@ARPOBOT-BLOOMIN8"],
     "config_flow": true,
-    "after_dependencies": ["bluetooth"],
     "dependencies": [],
     "documentation": "https://bloomin8.readme.io",
     "homekit": {},
