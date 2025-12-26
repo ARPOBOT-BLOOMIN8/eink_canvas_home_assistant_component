@@ -27,6 +27,7 @@ async def async_setup_entry(
 
     buttons = [
         EinkNextImageButton(hass, config_entry, host, name),
+        EinkSleepButton(hass, config_entry, host, name),
         EinkRebootButton(hass, config_entry, host, name),
         EinkClearScreenButton(hass, config_entry, host, name),
         EinkWhistleButton(hass, config_entry, host, name),
@@ -82,6 +83,25 @@ class EinkNextImageButton(EinkBaseButton):
             blocking=True,
         )
 
+
+class EinkSleepButton(EinkBaseButton):
+    """Button to put device to sleep."""
+
+    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+        """Initialize the button."""
+        super().__init__(hass, config_entry, host, device_name)
+        self._attr_name = "Sleep"
+        self._attr_unique_id = f"eink_display_{host}_sleep"
+        self._attr_icon = "mdi:sleep"
+
+    async def async_press(self) -> None:
+        """Handle the button press."""
+        await self.hass.services.async_call(
+            DOMAIN,
+            "sleep",
+            {},
+            blocking=True,
+        )
 
 
 class EinkRebootButton(EinkBaseButton):

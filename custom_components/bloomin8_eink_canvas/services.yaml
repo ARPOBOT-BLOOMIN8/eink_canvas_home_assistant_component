@@ -54,7 +54,10 @@ update_settings:
           unit_of_measurement: "seconds"
     max_idle:
       name: Max Idle Time (seconds)
-      description: Maximum time the device can be idle before going to sleep
+      description: >
+        Device setting: maximum time the Canvas can be idle before going to sleep.
+        Note: if the integration option "enable_polling" is enabled, the polling interval is
+        automatically chosen to be larger than this value (so polling should not prevent sleep).
       required: true
       default: 300
       example: 300

@@ -8,6 +8,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 ## [1.7.0] - Unreleased
 
 ### Added
+- New "Sleep" button entity to put the device into sleep mode directly from the UI.
 - New services to send images to the Canvas:
 	- `upload_image_url` (download from URL, optional processing, upload, optional show_now)
 	- `upload_image_data` (base64 image bytes, optional processing, upload, optional show_now)

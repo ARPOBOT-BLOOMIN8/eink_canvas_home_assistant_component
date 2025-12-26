@@ -134,14 +134,20 @@ Here are some ideas our team cooked up:
 
 ## Power saving / Polling
 
-**Polling kann ein Gerät wach halten – daher ist es hier absichtlich "safe" implementiert.**
+**Polling can keep a device awake — this integration therefore implements polling in a deliberately "safe" way.**
+
+Important: **"Max Idle Time" / `max_idle` is a device setting** (Canvas firmware), not just an internal Home Assistant option.
+You can change it in Home Assistant via:
+
+  * the **"Max Idle Time" select entity** (device configuration), or
+  * the **`bloomin8_eink_canvas.update_settings`** service (field `max_idle`).
 
 By default, `enable_polling` is **disabled** so the Canvas can sleep (Deep Sleep) and save power/battery.
 
 If you want state updates without preventing sleep:
 
   * Use the **Refresh Info** button or call `bloomin8_eink_canvas.refresh_device_info` (recommended for low power).
-  * Or enable `enable_polling` in the integration configuration: the integration will poll using an interval **larger than the device's Max Idle Time** so it should **not** keep the Canvas awake.
+  * Or enable `enable_polling` in the integration configuration: the integration will poll using an interval **larger than the device's Max Idle Time** (derived from `max_idle`) so it should **not** keep the Canvas awake.
 
 -----
 

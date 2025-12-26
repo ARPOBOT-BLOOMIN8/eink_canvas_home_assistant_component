@@ -53,8 +53,14 @@ def compute_safe_poll_interval_seconds(max_idle: Any) -> int:
     if idle <= 0:
         idle = DEFAULT_MAX_IDLE_SECONDS
 
+    # Some firmwares/config paths appear to report unexpectedly low max_idle values.
+    # For battery/sleep use-cases we prefer a conservative lower bound to avoid
+    # keeping the device awake via periodic HTTP requests.
+    if idle < DEFAULT_MAX_IDLE_SECONDS:
+        idle = DEFAULT_MAX_IDLE_SECONDS
+
     # Keep a small margin to be strictly greater than max_idle.
-    return int(idle + 5)
+    return int(idle + 30)
 
 
 class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | None]):
@@ -78,15 +84,25 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         self._safe_polling = bool(safe_polling)
         self._last_offline_info_log: datetime | None = None
 
-    async def async_refresh(self) -> None:
-        """Refresh data.
+    async def async_refresh(self, *args: Any, **kwargs: Any) -> None:
+        """Refresh data (quiet by default).
 
-        The Canvas is expected to be asleep/offline often. A refresh should therefore
-        not produce ERROR logs by default (those confuse users and clutter logs).
-
-        We delegate to our scheduled-refresh handler which already suppresses
-        failure logging.
+        Home Assistant's DataUpdateCoordinator may call `async_refresh` with
+        keyword args like `log_failures`. We accept those for compatibility but
+        force quiet logging because the Canvas is often asleep/offline.
         """
+        # Force quiet refresh regardless of caller intent.
+        kwargs["log_failures"] = False
+
+        # Prefer the upstream implementation when possible.
+        try:
+            await super().async_refresh(*args, **kwargs)  # type: ignore[misc]
+            return
+        except TypeError:
+            # Older HA versions with different signature.
+            pass
+
+        # Fallback to our handler.
         await self._handle_refresh(None)
 
     async def _handle_refresh(self, _now: Any) -> None:
@@ -98,13 +114,20 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         # Prefer the upstream implementation, but disable failure logging.
         # In Home Assistant this method typically delegates to an internal
         # refresh helper that accepts `log_failures`.
+        # 1) Newer HA: async_refresh accepts log_failures
+        try:
+            await super().async_refresh(log_failures=False)  # type: ignore[misc]
+            return
+        except TypeError:
+            pass
+
+        # 2) Some HA versions have an internal _async_refresh helper
         parent_async_refresh = getattr(super(), "_async_refresh", None)
         if parent_async_refresh is not None:
             try:
                 await parent_async_refresh(log_failures=False)
                 return
             except TypeError:
-                # Older HA version with different signature.
                 pass
 
         # Fallback path for older/unknown HA versions.
@@ -152,5 +175,11 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
             new_seconds = compute_safe_poll_interval_seconds(data.get("max_idle"))
             new_interval = timedelta(seconds=new_seconds)
             if new_interval != self.update_interval:
+                self.logger.debug(
+                    "Adjusting polling interval based on max_idle=%s: %ss -> %ss",
+                    data.get("max_idle"),
+                    int(self.update_interval.total_seconds()),
+                    int(new_interval.total_seconds()),
+                )
                 self.update_interval = new_interval
         return data
