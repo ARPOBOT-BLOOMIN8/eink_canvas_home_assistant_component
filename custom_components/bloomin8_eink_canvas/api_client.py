@@ -228,12 +228,16 @@ class EinkCanvasApiClient:
 
                 # Prefer HA-recommended connector when available for more reliable connects.
                 try:
-                    from bleak_retry_connector import establish_connection  # type: ignore
+                    from bleak_retry_connector import (  # type: ignore
+                        BleakClientWithServiceCache,
+                        establish_connection,
+                    )
 
                     client = await establish_connection(
-                        BleakClient,
+                        BleakClientWithServiceCache,
                         ble_device,
-                        self._mac_address,
+                        name=getattr(ble_device, "name", None) or self._mac_address,
+                        max_attempts=4,
                     )
                     try:
                         await client.write_gatt_char(
@@ -244,7 +248,7 @@ class EinkCanvasApiClient:
                         _LOGGER.debug("BLE auto-wake signal sent to %s", self._mac_address)
                     finally:
                         await client.disconnect()
-                except Exception:
+                except ImportError:
                     # Fallback to plain BleakClient (may log a warning in newer HA).
                     async with BleakClient(ble_device) as client:
                         if not client.is_connected:

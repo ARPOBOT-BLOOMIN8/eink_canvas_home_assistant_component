@@ -102,26 +102,52 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
         )
         return
 
-    try:
-        from bleak import BleakClient  # type: ignore
-    except ImportError:
-        _LOGGER.warning(
-            "BLE wake skipped: 'bleak' is not available in this environment"
-        )
-        return
-
     _LOGGER.info("Sending BLE wake signal to %s", mac_address)
     attempted = False
     try:
         attempted = True
-        async with BleakClient(ble_device) as client:
-            if not client.is_connected:
-                _LOGGER.warning("BLE wake: failed to connect to %s", mac_address)
-            else:
+
+        # Prefer HA-recommended connector when available.
+        try:
+            from bleak_retry_connector import (  # type: ignore
+                BleakClientWithServiceCache,
+                establish_connection,
+            )
+
+            client = await establish_connection(
+                BleakClientWithServiceCache,
+                ble_device,
+                name=getattr(ble_device, "name", None) or mac_address,
+                max_attempts=4,
+            )
+            try:
                 await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
                 _LOGGER.info("BLE wake signal sent to %s", mac_address)
+            finally:
+                await client.disconnect()
+        except ImportError:
+            # Import bleak lazily to avoid hard dependency during import/tests
+            try:
+                from bleak import BleakClient  # type: ignore
+            except ImportError:
+                _LOGGER.warning(
+                    "BLE wake skipped: 'bleak' is not available in this environment"
+                )
+                return
+
+            async with BleakClient(ble_device) as client:
+                if not client.is_connected:
+                    _LOGGER.warning("BLE wake: failed to connect to %s", mac_address)
+                else:
+                    await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
+                    _LOGGER.info("BLE wake signal sent to %s", mac_address)
     except Exception as err:
-        _LOGGER.warning("BLE wake failed for %s: %s", mac_address, err)
+        _LOGGER.warning(
+            "BLE wake failed for %s (%s): %s",
+            mac_address,
+            type(err).__name__,
+            err,
+        )
     finally:
         # Per requirement: if BLE is set up, give the device time to boot Wi-Fi.
         # Only wait if we at least attempted a BLE connection (device was found).
