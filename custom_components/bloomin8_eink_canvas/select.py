@@ -108,6 +108,15 @@ class EinkBaseSelect(SelectEntity):
         self.schedule_update_ha_state(False)
 
     @property
+    def available(self) -> bool:
+        """Return entity availability.
+
+        Available if we have any cached device info. This allows select entities
+        to show the last known value when the device is offline/asleep.
+        """
+        return self._get_device_info() is not None
+
+    @property
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(

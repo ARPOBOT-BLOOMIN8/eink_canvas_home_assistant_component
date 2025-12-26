@@ -20,7 +20,6 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
-    CONF_ENABLE_POLLING,
     SIGNAL_DEVICE_INFO_UPDATED,
 )
 
@@ -77,10 +76,9 @@ class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
         self._attr_should_poll = False
 
     def _device_info_snapshot(self) -> dict[str, Any] | None:
-        # Prefer coordinator data only if the last update succeeded.
-        # Otherwise we might show stale data ("Online") even though the device is
-        # currently asleep/offline.
-        if self.coordinator.last_update_success and self.coordinator.data:
+        # Return cached data if available (coordinator or runtime cache).
+        # This allows sensors to show last known values when the device is offline.
+        if self.coordinator.data:
             return self.coordinator.data
         return self._config_entry.runtime_data.device_info
 
@@ -88,10 +86,12 @@ class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         """Return entity availability.
 
-        If the coordinator cannot fetch fresh data, the device should be treated as
-        unavailable (battery/sleep friendly).
+        Unlike typical coordinator entities, we consider the entity available
+        if we have any cached data. This allows sensors to show the last known
+        value when the device is offline/asleep, which is expected behavior
+        for battery-powered devices that sleep for hours/days.
         """
-        return bool(self.coordinator.last_update_success)
+        return self._device_info_snapshot() is not None
 
     @property
     def device_info(self) -> DeviceInfo:

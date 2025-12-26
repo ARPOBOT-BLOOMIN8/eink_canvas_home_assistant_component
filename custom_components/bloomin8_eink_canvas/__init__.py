@@ -25,17 +25,13 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send, dispatcher_s
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .coordinator import (
-    EinkCanvasDeviceInfoCoordinator,
-    compute_safe_poll_interval_seconds,
-)
+from .coordinator import EinkCanvasDeviceInfoCoordinator
 
 from .api_client import EinkCanvasApiClient
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
     SIGNAL_DEVICE_INFO_UPDATED,
-    CONF_ENABLE_POLLING,
     CONF_MAC_ADDRESS,
     CONF_BLE_AUTO_WAKE,
     DEFAULT_BLE_AUTO_WAKE,
@@ -109,22 +105,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: EinkCanvasConfigEntry) -
         ble_auto_wake=ble_auto_wake,
     )
 
-    # Centralize device-info fetching (avoids one HTTP call per entity).
-    enable_polling = bool(entry.data.get(CONF_ENABLE_POLLING, False))
-
-    # "enable_polling" is intentionally implemented as *safe polling*:
-    # we only poll at an interval strictly larger than the device's max_idle
-    # so polling should not keep the device awake.
-    polling_interval = None
-    if enable_polling:
-        # We do not know max_idle yet at startup; use a safe fallback (> default max_idle).
-        safe_seconds = compute_safe_poll_interval_seconds(None)
-        polling_interval = timedelta(seconds=safe_seconds)
+    # Centralize device-info fetching (no polling — push-only for battery savings).
     coordinator = EinkCanvasDeviceInfoCoordinator(
         hass,
         api_client=api_client,
-        update_interval=polling_interval,
-        safe_polling=enable_polling,
     )
     # Do not fail setup if the device is asleep/offline.
     # We prefer a loaded integration with unavailable entities.
@@ -491,6 +475,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.show_next()
         if success:
             add_log("Successfully switched to next image")
+            # Refresh device info to update current image display
+            await coordinator.async_request_refresh()
         else:
             add_log("Failed to switch to next image", "error")
 
@@ -499,6 +485,7 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.sleep()
         if success:
             add_log("Device entered sleep mode")
+            # No refresh needed - device is now asleep
         else:
             add_log("Device sleep failed", "error")
 
@@ -507,6 +494,7 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.reboot()
         if success:
             add_log("Device reboot command sent")
+            # No immediate refresh - device is rebooting
         else:
             add_log("Device reboot failed", "error")
 
@@ -515,6 +503,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.clear_screen()
         if success:
             add_log("Screen cleared")
+            # Refresh device info to update current display state
+            await coordinator.async_request_refresh()
         else:
             add_log("Clear screen failed", "error")
 
@@ -523,6 +513,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.whistle()
         if success:
             add_log("Keep alive signal sent")
+            # Refresh device info since device is now confirmed awake
+            await coordinator.async_request_refresh()
         else:
             add_log("Keep alive failed", "error")
 
@@ -547,6 +539,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         if success:
             settings_str = ", ".join([f"{k}: {v}" for k, v in settings_data.items()])
             add_log(f"Device settings updated: {settings_str}")
+            # Refresh device info to reflect new settings (e.g., name, max_idle)
+            await coordinator.async_request_refresh()
         else:
             add_log("Settings update failed", "error")
 
@@ -688,6 +682,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
             add_log(
                 f"Uploaded {len(prepared)} images via uploadMulti to gallery '{gallery}' (skipped={skipped})"
             )
+            # Refresh device info to update image counts/gallery info
+            await coordinator.async_request_refresh()
         else:
             add_log(
                 f"upload_images_multi failed for gallery '{gallery}' (prepared={len(prepared)}, skipped={skipped})",
@@ -783,6 +779,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.upload_dithered_image_data(raw, filename)
         if success:
             add_log(f"Uploaded dithered image data: {filename}")
+            # Refresh device info to update current image display
+            await coordinator.async_request_refresh()
         else:
             add_log(f"Dithered image data upload failed: {filename}", "error")
 
@@ -840,6 +838,8 @@ async def _register_services(hass: HomeAssistant, entry: EinkCanvasConfigEntry) 
         success = await api_client.show_playlist(playlist, image=image, dither=dither)
         if success:
             add_log(f"Started playlist: {playlist}")
+            # Refresh device info to reflect active playlist/current image
+            await coordinator.async_request_refresh()
         else:
             add_log(f"Start playlist failed: {playlist}", "error")
 

@@ -1,6 +1,7 @@
 """Support for BLOOMIN8 E-Ink Canvas buttons."""
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
@@ -11,7 +12,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 
-from .const import DOMAIN, DEFAULT_NAME, CONF_MAC_ADDRESS, BLE_CHAR_UUID, BLE_WAKE_PAYLOAD
+from .const import (
+    DOMAIN,
+    DEFAULT_NAME,
+    CONF_MAC_ADDRESS,
+    BLE_CHAR_UUID,
+    BLE_WAKE_PAYLOAD,
+    POST_WAKE_REFRESH_TIMEOUT_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -189,6 +197,9 @@ class EinkRefreshButton(EinkBaseButton):
 class EinkBluetoothWakeButton(EinkBaseButton):
     """Button to wake the device via Bluetooth Low Energy (BLE)."""
 
+    # Wait time after BLE wake before attempting HTTP refresh (seconds)
+    _BLE_WAKE_WAIT_SECONDS = 2
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -272,5 +283,44 @@ class EinkBluetoothWakeButton(EinkBaseButton):
                 "Failed to send BLE wake signal to %s (%s): %s",
                 self._mac,
                 type(err).__name__,
+                err,
+            )
+        
+        # Always try to refresh device info after wake attempt.
+        # The device might have been woken by user touch or another service,
+        # so we try even if BLE wake failed.
+        await self._refresh_device_info_after_wake()
+
+    async def _refresh_device_info_after_wake(self) -> None:
+        """Attempt to refresh device info after BLE wake with short timeout.
+        
+        Uses a shorter timeout than normal polling to quickly detect if device
+        woke up without blocking too long if it didn't.
+        """
+        # Wait briefly for device to fully wake up after BLE signal
+        await asyncio.sleep(self._BLE_WAKE_WAIT_SECONDS)
+        
+        try:
+            runtime_data = self._config_entry.runtime_data
+            api_client = runtime_data.api_client
+            coordinator = runtime_data.coordinator
+            
+            # Use short timeout for post-wake refresh
+            device_info = await api_client.get_device_info(
+                wake=False,
+                timeout=POST_WAKE_REFRESH_TIMEOUT_SECONDS,
+            )
+            
+            if device_info:
+                runtime_data.device_info = device_info
+                coordinator.async_set_updated_data(device_info)
+                _LOGGER.debug("Device info refreshed after BLE wake")
+            else:
+                _LOGGER.debug(
+                    "Device did not respond after BLE wake (may still be waking up)"
+                )
+        except Exception as err:
+            _LOGGER.debug(
+                "Failed to refresh device info after BLE wake: %s",
                 err,
             )

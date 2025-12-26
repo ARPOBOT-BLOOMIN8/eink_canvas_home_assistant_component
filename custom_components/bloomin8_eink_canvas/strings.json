@@ -10,7 +10,6 @@
                     "ble_device": "Select BLE device (optional)",
                     "mac_address": "Bluetooth MAC Address (optional)",
                     "ble_auto_wake": "Auto wake via BLE before API calls",
-                    "enable_polling": "Enable safe polling (won't keep device awake)",
                     "orientation": "Display Orientation",
                     "fill_mode": "Image Fill Mode",
                     "contain_color": "Background Color"
@@ -19,7 +18,6 @@
                     "ble_device": "Optional: pick your Canvas from Home Assistant's discovered Bluetooth devices (requires Bluetooth / BLE proxies). If set, the device will be woken via BLE and the setup will wait ~10s before connecting via IP.",
                     "mac_address": "Optional: used to wake the device via BLE when it is in deep sleep (format: AA:BB:CC:DD:EE:FF). If set, the setup will wake the device and wait ~10s before connecting via IP.",
                     "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy).",
-                    "enable_polling": "If enabled, Home Assistant will periodically request device info over HTTP. The interval is derived from the device's Max Idle Time (max_idle) and chosen to be larger so it should not prevent sleep. To change max_idle, use the 'Max Idle Time' select entity or the 'Update Device Settings' service. For faster updates, use Refresh Info.",
                     "orientation": "Select portrait or landscape based on how your frame is mounted",
                     "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
                     "contain_color": "Background color used when image doesn't fill the screen (contain mode)"
@@ -34,7 +32,6 @@
                     "ble_device": "Select BLE device (optional)",
                     "mac_address": "Bluetooth MAC Address (optional)",
                     "ble_auto_wake": "Auto wake via BLE before API calls",
-                    "enable_polling": "Enable safe polling (won't keep device awake)",
                     "orientation": "Display Orientation",
                     "fill_mode": "Image Fill Mode",
                     "contain_color": "Background Color"
@@ -43,7 +40,6 @@
                     "ble_device": "Optional: pick your Canvas from Home Assistant's discovered Bluetooth devices (requires Bluetooth / BLE proxies). If set, the device will be woken via BLE and the setup will wait ~10s before connecting via IP.",
                     "mac_address": "Optional: used to wake the device via BLE when it is in deep sleep (format: AA:BB:CC:DD:EE:FF). If set, the setup will wake the device and wait ~10s before connecting via IP.",
                     "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy).",
-                    "enable_polling": "If enabled, Home Assistant will periodically request device info over HTTP. The interval is derived from the device's Max Idle Time (max_idle) and chosen to be larger so it should not prevent sleep. To change max_idle, use the 'Max Idle Time' select entity or the 'Update Device Settings' service. For faster updates, use Refresh Info.",
                     "orientation": "Select portrait or landscape based on how your frame is mounted",
                     "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
                     "contain_color": "Background color used when image doesn't fill the screen (contain mode)"

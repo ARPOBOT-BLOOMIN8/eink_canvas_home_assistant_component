@@ -345,14 +345,21 @@ class EinkCanvasApiClient:
             _LOGGER.debug("Error getting status (details)", exc_info=err)
             return None
 
-    async def get_device_info(self, *, wake: bool = False) -> dict[str, Any] | None:
+    async def get_device_info(
+        self, *, wake: bool = False, timeout: int | None = None
+    ) -> dict[str, Any] | None:
         """Get device information from /deviceInfo endpoint.
 
         Returns device status including name, version, battery, screen resolution,
         current image, network info, etc. See openapi.yaml for full response schema.
+        
+        Args:
+            wake: If True, attempt BLE wake before HTTP request.
+            timeout: Optional custom timeout in seconds (default: 10s).
         """
         key = self._request_key("GET", ENDPOINT_DEVICE_INFO)
         url = f"http://{self._host}{ENDPOINT_DEVICE_INFO}"
+        request_timeout = timeout if timeout is not None else 10
         try:
             if wake:
                 await self.async_ensure_awake()
@@ -360,7 +367,7 @@ class EinkCanvasApiClient:
                 # Polling path: never wake. Only query if already online.
                 if not await self._async_http_ping():
                     return None
-            async with async_timeout.timeout(10):
+            async with async_timeout.timeout(request_timeout):
                 async with self._session.get(url) as response:
                     text_response = await response.text()
 

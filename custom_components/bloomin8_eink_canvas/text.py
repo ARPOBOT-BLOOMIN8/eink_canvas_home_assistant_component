@@ -87,6 +87,15 @@ class EinkDeviceNameText(TextEntity):
             # configuration_url=f"http://{self._host}",  # Disabled to prevent external access
         )
 
+    @property
+    def available(self) -> bool:
+        """Return entity availability.
+
+        Available if we have any cached device info. This allows text entities
+        to show the last known value when the device is offline/asleep.
+        """
+        return self._get_device_info() is not None
+
     def _get_device_info(self) -> dict | None:
         """Get device info from shared runtime data."""
         runtime_data = self._config_entry.runtime_data
