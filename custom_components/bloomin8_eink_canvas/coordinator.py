@@ -78,6 +78,17 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         self._safe_polling = bool(safe_polling)
         self._last_offline_info_log: datetime | None = None
 
+    async def async_refresh(self) -> None:
+        """Refresh data.
+
+        The Canvas is expected to be asleep/offline often. A refresh should therefore
+        not produce ERROR logs by default (those confuse users and clutter logs).
+
+        We delegate to our scheduled-refresh handler which already suppresses
+        failure logging.
+        """
+        await self._handle_refresh(None)
+
     async def _handle_refresh(self, _now: Any) -> None:
         """Handle scheduled refreshes.
 

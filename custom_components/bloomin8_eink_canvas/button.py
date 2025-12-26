@@ -195,6 +195,19 @@ class EinkBluetoothWakeButton(EinkBaseButton):
             )
             return
 
+        _LOGGER.info("Sending BLE wake signal to %s", self._mac)
+
+        # Prefer HA-recommended connector for reliable connects and to avoid warnings
+        # from habluetooth wrappers.
+        try:
+            from bleak_retry_connector import (  # type: ignore
+                BleakClientWithServiceCache,
+                establish_connection,
+            )
+        except ImportError:
+            BleakClientWithServiceCache = None  # type: ignore[assignment]
+            establish_connection = None  # type: ignore[assignment]
+
         # Import bleak lazily to avoid hard dependency during import/tests
         try:
             from bleak import BleakClient  # type: ignore
@@ -204,14 +217,40 @@ class EinkBluetoothWakeButton(EinkBaseButton):
             )
             return
 
-        _LOGGER.info("Sending BLE wake signal to %s", self._mac)
         try:
-            async with BleakClient(device) as client:
-                if not client.is_connected:
-                    _LOGGER.error("Failed to connect to %s", self._mac)
-                    return
+            if establish_connection is not None and BleakClientWithServiceCache is not None:
+                client = await establish_connection(
+                    BleakClientWithServiceCache,
+                    device,
+                    name=getattr(device, "name", None) or self._mac,
+                    max_attempts=4,
+                )
+                try:
+                    await client.write_gatt_char(
+                        BLE_CHAR_UUID,
+                        BLE_WAKE_PAYLOAD,
+                        response=True,
+                    )
+                    _LOGGER.info("BLE wake signal sent successfully")
+                finally:
+                    await client.disconnect()
+            else:
+                # Fallback for environments without bleak-retry-connector.
+                async with BleakClient(device) as client:
+                    if not client.is_connected:
+                        _LOGGER.error("Failed to connect to %s", self._mac)
+                        return
 
-                await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
-                _LOGGER.info("BLE wake signal sent successfully")
+                    await client.write_gatt_char(
+                        BLE_CHAR_UUID,
+                        BLE_WAKE_PAYLOAD,
+                        response=True,
+                    )
+                    _LOGGER.info("BLE wake signal sent successfully")
         except Exception as err:
-            _LOGGER.error("Failed to send BLE wake signal to %s: %s", self._mac, err)
+            _LOGGER.error(
+                "Failed to send BLE wake signal to %s (%s): %s",
+                self._mac,
+                type(err).__name__,
+                err,
+            )
