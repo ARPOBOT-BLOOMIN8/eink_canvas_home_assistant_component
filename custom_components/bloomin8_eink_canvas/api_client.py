@@ -489,10 +489,15 @@ class EinkCanvasApiClient:
             return False
 
     async def clear_screen(self) -> bool:
-        """Clear the screen."""
+        """Clear the screen.
+        
+        Note: The device takes ~15-20 seconds to physically clear the E-Ink display
+        and only responds after the operation completes.
+        """
         try:
             await self.async_ensure_awake()
-            async with async_timeout.timeout(10):
+            # E-Ink refresh takes ~15-20 seconds; use a generous timeout.
+            async with async_timeout.timeout(30):
                 async with self._session.post(
                     f"http://{self._host}{ENDPOINT_CLEAR_SCREEN}"
                 ) as response:
