@@ -53,10 +53,6 @@ CONF_MAC_ADDRESS = "mac_address"
 CONF_BLE_AUTO_WAKE = "ble_auto_wake"
 DEFAULT_BLE_AUTO_WAKE = False
 
-# Power / polling behavior
-# If disabled, entities will avoid periodic HTTP polling so the device can sleep.
-CONF_ENABLE_POLLING = "enable_polling"
-
 # Dispatcher signal base for notifying entities that cached runtime data changed.
 # Entities use: f"{SIGNAL_DEVICE_INFO_UPDATED}_{entry_id}".
 SIGNAL_DEVICE_INFO_UPDATED = f"{DOMAIN}_device_info_updated"
@@ -89,3 +85,7 @@ CONTAIN_COLORS = {
 ERROR_CANNOT_CONNECT = "cannot_connect"
 ERROR_INVALID_AUTH = "invalid_auth"
 ERROR_UNKNOWN = "unknown"
+
+# Post-wake refresh timeout (shorter than normal to quickly detect if device woke up)
+POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5
+POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5

@@ -20,7 +20,6 @@ from .const import (
     CONF_MAC_ADDRESS,
     CONF_BLE_AUTO_WAKE,
     DEFAULT_BLE_AUTO_WAKE,
-    CONF_ENABLE_POLLING,
     CONF_ORIENTATION,
     CONF_FILL_MODE,
     CONF_CONTAIN_COLOR,
@@ -255,7 +254,6 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_BLE_AUTO_WAKE,
                     default=reconfigure_entry.data.get(CONF_BLE_AUTO_WAKE, DEFAULT_BLE_AUTO_WAKE),
                 ): bool,
-                vol.Optional(CONF_ENABLE_POLLING, default=reconfigure_entry.data.get(CONF_ENABLE_POLLING, False)): bool,
                 vol.Required(
                     CONF_ORIENTATION,
                     default=reconfigure_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION),
@@ -333,7 +331,6 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             {
                 vol.Optional(CONF_MAC_ADDRESS, default=(self._prefill_mac or "")): str,
                 vol.Optional(CONF_BLE_AUTO_WAKE, default=DEFAULT_BLE_AUTO_WAKE): bool,
-                vol.Optional(CONF_ENABLE_POLLING, default=False): bool,
                 vol.Required(
                     CONF_ORIENTATION,
                     default=DEFAULT_ORIENTATION,

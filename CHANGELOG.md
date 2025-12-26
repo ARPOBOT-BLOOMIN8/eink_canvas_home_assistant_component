@@ -24,18 +24,19 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 	- `list_galleries` (list galleries via `/gallery/list`)
 	- `list_playlists` (list playlists via `/playlist/list`)
 	- `get_playlist` (fetch a playlist via `/playlist?name=...`)
-- Config option `enable_polling` to control periodic HTTP polling.
 - BLE device selection dropdown in the config flow (uses Home Assistant Bluetooth discoveries).
 - Bluetooth discovery flow support (`async_step_bluetooth`) to prefill the BLE address when the device is discovered.
 - Optional Bluetooth wake button (BLE) when a Bluetooth MAC address is configured.
+- Automatic device info refresh after BLE wake button press (with short 5s timeout).
+- Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
 
 ### Changed
+- **BREAKING**: Removed `enable_polling` config option. Periodic HTTP polling caused severe battery drain by resetting the device's idle timer, preventing sleep. The integration now uses a pure push-based model: entities update automatically after user actions (services, buttons) and show the last known value when the device is offline.
+- Entities (sensors, selects, text) now show the last known cached value when the device is offline/asleep instead of becoming "unavailable". This provides a better user experience for battery-powered devices that sleep for hours or days.
 - When `ble_auto_wake` is enabled and a BLE MAC is configured, the integration will attempt a best-effort BLE wake and wait for the device to come online before sending HTTP commands.
 - Default behavior now avoids periodic `/deviceInfo` polling so the Canvas can sleep.
 - When polling is disabled, entities update from cached runtime data after a manual refresh (service/button).
 - Config flow: if a BLE address is configured, send a BLE wake signal and wait ~10 seconds before validating the IP connection.
-- `enable_polling` now uses a safe interval derived from the device's `max_idle` (polling interval is always > max_idle), so polling should not keep the device awake.
-- Reduce log noise when the Canvas is asleep/offline: scheduled polling no longer spams ERROR logs for missing `/deviceInfo` responses.
 - `manifest.json`: declare Bluetooth discovery matcher for Bloomin8 service UUID.
 - Internals: centralize `/deviceInfo` fetching via a shared `DataUpdateCoordinator` to avoid one HTTP call per entity.
 - Internals: sensors and the media player consume coordinator snapshots; action-driven operations can push a fresh snapshot to update entities immediately.
