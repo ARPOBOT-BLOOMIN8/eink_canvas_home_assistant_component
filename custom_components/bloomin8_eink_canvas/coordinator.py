@@ -134,27 +134,15 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         # Keep behavior similar but avoid error spam for expected sleep/offline.
         try:
             data = await self._async_update_data()
-        except UpdateFailed as err:
-            self.last_update_success = False
-            # Throttled info to avoid log spam.
-            now = datetime.now()
-            if (
-                self._last_offline_info_log is None
-                or (now - self._last_offline_info_log).total_seconds() >= 1800
-            ):
-                self._last_offline_info_log = now
-                self.logger.info(
-                    "Polling: device asleep/offline (expected): %s",
-                    err,
-                )
+            # None means device is offline (logged inside _async_update_data).
+            if data is None:
+                self.last_update_success = False
             else:
-                self.logger.debug("Polling: device asleep/offline (expected): %s", err)
+                self.data = data
+                self.last_update_success = True
         except Exception:
             self.last_update_success = False
             self.logger.exception("Unexpected error fetching %s data", self.name)
-        else:
-            self.data = data
-            self.last_update_success = True
         finally:
             self.async_update_listeners()
 
@@ -162,12 +150,28 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         """Fetch the latest device info snapshot.
 
         Important: this must NOT wake the device via BLE.
+        
+        Returns None if the device is offline/asleep. This is expected behavior
+        for battery-powered devices and should not be logged as an error.
         """
         data = await self._api.get_device_info(wake=False)
         if data is None:
-            # Treat absence of data as a failed update so entities become unavailable.
-            # Note: scheduled polling suppresses ERROR logs in _handle_refresh.
-            raise UpdateFailed("Device did not respond to /deviceInfo")
+            # Device is offline/asleep - this is expected for battery devices.
+            # Log as debug only; throttled info logging happens elsewhere.
+            now = datetime.now()
+            if (
+                self._last_offline_info_log is None
+                or (now - self._last_offline_info_log).total_seconds() >= 1800
+            ):
+                self._last_offline_info_log = now
+                self.logger.info(
+                    "Device did not respond to /deviceInfo (asleep/offline, expected)"
+                )
+            else:
+                self.logger.debug(
+                    "Device did not respond to /deviceInfo (asleep/offline)"
+                )
+            return None
 
         # If polling is enabled, adapt the interval based on current device settings.
         # This is intentionally conservative so polling never keeps the device awake.

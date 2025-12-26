@@ -49,6 +49,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.
 - Reduce redundant `/deviceInfo` calls by sharing a single coordinator snapshot across entities.
 - Increase `clear_screen` timeout from 10s to 30s (E-Ink display refresh takes ~15-20s).
+- Polling: device offline/asleep now logs as INFO (throttled) instead of ERROR.
 
 ## [1.6.0] 
 
