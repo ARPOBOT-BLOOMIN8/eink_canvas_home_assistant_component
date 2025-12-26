@@ -61,7 +61,10 @@ async def async_setup_entry(
 
     coordinator = config_entry.runtime_data.coordinator
 
-    async_add_entities([EinkDisplayMediaPlayer(coordinator, hass, config_entry, host, name)], True)
+    # CoordinatorEntity.async_update triggers a coordinator refresh.
+    # We already do an initial coordinator refresh during integration setup, so
+    # update_before_add=True would cause an immediate extra HTTP fetch.
+    async_add_entities([EinkDisplayMediaPlayer(coordinator, hass, config_entry, host, name)], False)
 
 
 class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
@@ -553,10 +556,29 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 gallery_name = media_content_id[8:]
                 return await self._browse_gallery_images(gallery_name)
             elif media_content_id == "local_media":
-                return await media_source.async_browse_media(
-                    self.hass,
-                    None,
-                    content_filter=lambda item: item.media_content_type.startswith('image/')
+                # Browse Home Assistant's configured local media.
+                # Passing None is not supported consistently across HA versions and
+                # can raise "Media directory does not exist".
+                from homeassistant.components.media_source import local_source
+                from homeassistant.components import media_source as ha_media_source
+
+                if hasattr(local_source, "async_browse_media"):
+                    return await local_source.async_browse_media(
+                        self.hass,
+                        "",
+                        content_filter=lambda item: item.media_content_type.startswith("image/"),
+                    )
+
+                if hasattr(ha_media_source, "generate_media_source_id"):
+                    local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN)
+                    return await ha_media_source.async_browse_media(
+                        self.hass,
+                        local_root,
+                        content_filter=lambda item: item.media_content_type.startswith("image/"),
+                    )
+
+                raise ValueError(
+                    "Browsing local media is not available in this Home Assistant version."
                 )
             else:
                 return await media_source.async_browse_media(
@@ -565,7 +587,16 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     content_filter=lambda item: item.media_content_type.startswith('image/')
                 )
         except Exception as err:
-            _LOGGER.error("Error browsing media: %s", str(err))
+            # This often happens when Home Assistant has no media directory configured.
+            # Avoid spamming ERROR logs for an expected setup condition.
+            msg = str(err)
+            if "Media directory" in msg and "does not exist" in msg:
+                _LOGGER.warning(
+                    "Media browsing unavailable: %s. Configure a media directory in Home Assistant to use Local Media.",
+                    msg,
+                )
+            else:
+                _LOGGER.error("Error browsing media: %s", msg)
             return BrowseMedia(
                 title="Error",
                 media_class=MediaClass.DIRECTORY,

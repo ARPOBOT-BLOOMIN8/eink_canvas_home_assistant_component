@@ -37,18 +37,23 @@ async def async_setup_entry(
 
     coordinator = config_entry.runtime_data.coordinator
 
-    sensors = [
+    # CoordinatorEntity.async_update triggers a coordinator refresh. We already
+    # perform an initial refresh during integration setup, so adding multiple
+    # CoordinatorEntity sensors with update_before_add=True would cause extra
+    # immediate HTTP fetches (often debounced, but still noisy).
+    coordinator_sensors = [
         EinkDeviceInfoSensor(coordinator, hass, config_entry, host, name),
         EinkBatterySensor(coordinator, hass, config_entry, host, name),
         EinkStorageSensor(coordinator, hass, config_entry, host, name),
         EinkCurrentImageSensor(coordinator, hass, config_entry, host, name),
-        EinkLogSensor(hass, config_entry, host, name),
         EinkFirmwareVersionSensor(coordinator, hass, config_entry, host, name),
         EinkWifiSSIDSensor(coordinator, hass, config_entry, host, name),
         EinkScreenResolutionSensor(coordinator, hass, config_entry, host, name),
     ]
+    async_add_entities(coordinator_sensors, False)
 
-    async_add_entities(sensors, True)
+    # Non-coordinator sensor: safe to update before add (no network I/O).
+    async_add_entities([EinkLogSensor(hass, config_entry, host, name)], True)
 
 
 class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
@@ -72,10 +77,21 @@ class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
         self._attr_should_poll = False
 
     def _device_info_snapshot(self) -> dict[str, Any] | None:
-        # Prefer coordinator data; fall back to runtime cache (e.g. set by services).
-        if self.coordinator.data:
+        # Prefer coordinator data only if the last update succeeded.
+        # Otherwise we might show stale data ("Online") even though the device is
+        # currently asleep/offline.
+        if self.coordinator.last_update_success and self.coordinator.data:
             return self.coordinator.data
         return self._config_entry.runtime_data.device_info
+
+    @property
+    def available(self) -> bool:
+        """Return entity availability.
+
+        If the coordinator cannot fetch fresh data, the device should be treated as
+        unavailable (battery/sleep friendly).
+        """
+        return bool(self.coordinator.last_update_success)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -122,8 +138,12 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
 
     @callback
     def _handle_coordinator_update(self) -> None:
+        # Online/Offline is based on whether the coordinator could reach the device.
+        # This correctly reflects that the device may be asleep (expected) or unreachable.
+        is_online = bool(self.coordinator.last_update_success)
         device_info = self._device_info_snapshot()
-        if device_info:
+
+        if is_online and device_info:
             self._attr_native_value = "Online"
             self._attr_extra_state_attributes = {
                 "device_name": device_info.get("name"),
@@ -144,7 +164,18 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
             }
         else:
             self._attr_native_value = "Offline"
-            self._attr_extra_state_attributes = {}
+            # Keep last known attributes visible for diagnostics, but mark as offline.
+            if device_info:
+                self._attr_extra_state_attributes = {
+                    "device_name": device_info.get("name"),
+                    "firmware_version": device_info.get("version"),
+                    "board_model": device_info.get("board_model"),
+                    "screen_model": device_info.get("screen_model"),
+                    "last_known_battery": device_info.get("battery"),
+                    "note": "Device is asleep or unreachable",
+                }
+            else:
+                self._attr_extra_state_attributes = {}
 
         super()._handle_coordinator_update()
 

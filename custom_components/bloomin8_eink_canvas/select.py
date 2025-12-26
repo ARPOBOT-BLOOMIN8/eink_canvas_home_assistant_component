@@ -186,19 +186,51 @@ class EinkMaxIdleSelect(EinkBaseSelect):
         self._attr_unique_id = f"eink_display_{host}_max_idle"
         self._attr_icon = "mdi:timer"
         self._attr_options = list(MAX_IDLE_OPTIONS.keys())
+        self._raw_max_idle: int | None = None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Return entity specific state attributes."""
+        if self._raw_max_idle is not None:
+            return {"raw_max_idle_seconds": self._raw_max_idle}
+        return None
 
     async def async_update(self) -> None:
         """Update the select input value."""
         device_info = self._get_device_info()
         if device_info:
             current_value = device_info.get("max_idle", 300)
+            self._raw_max_idle = current_value
             # Find the matching option
             for option, value in MAX_IDLE_OPTIONS.items():
                 if value == current_value:
                     self._attr_current_option = option
                     return
-            # Default to 5 minutes if no match found
-            self._attr_current_option = "5 minutes"
+            # No exact match found - find the closest option
+            # This handles firmware values not in our predefined list
+            if current_value == -1:
+                self._attr_current_option = "never sleep"
+            elif current_value <= 10:
+                self._attr_current_option = "10 seconds"
+            elif current_value <= 30:
+                self._attr_current_option = "30 seconds"
+            elif current_value <= 60:
+                self._attr_current_option = "1 minute"
+            elif current_value <= 120:
+                self._attr_current_option = "2 minutes"
+            elif current_value <= 180:
+                self._attr_current_option = "3 minutes"
+            elif current_value <= 300:
+                self._attr_current_option = "5 minutes"
+            elif current_value <= 600:
+                self._attr_current_option = "10 minutes"
+            else:
+                self._attr_current_option = "10 minutes"
+            _LOGGER.debug(
+                "max_idle=%s not in options, using closest match: %s",
+                current_value,
+                self._attr_current_option,
+            )
         else:
             self._attr_current_option = "5 minutes"
 
