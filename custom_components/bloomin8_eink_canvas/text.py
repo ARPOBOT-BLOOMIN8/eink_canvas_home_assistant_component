@@ -74,7 +74,9 @@ class EinkDeviceNameText(TextEntity):
     def _handle_runtime_data_updated(self) -> None:
         """Handle runtime data updates (no network I/O)."""
         # Thread-safety: use sync helper safe from any thread.
-        self.schedule_update_ha_state(False)
+        # Force a refresh so async_update() runs and pulls the latest value from
+        # runtime_data.device_info.
+        self.schedule_update_ha_state(True)
 
     @property
     def device_info(self) -> DeviceInfo:

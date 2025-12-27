@@ -38,7 +38,7 @@ from .const import (
     ENDPOINT_PLAYLIST,
     ENDPOINT_PLAYLIST_LIST,
     ENDPOINT_STATUS,
-    BLE_CHAR_UUID,
+    BLE_WAKE_CHAR_UUIDS,
     BLE_WAKE_PAYLOAD,
 )
 
@@ -240,12 +240,23 @@ class EinkCanvasApiClient:
                         max_attempts=4,
                     )
                     try:
-                        await client.write_gatt_char(
-                            BLE_CHAR_UUID,
-                            BLE_WAKE_PAYLOAD,
-                            response=True,
-                        )
-                        _LOGGER.debug("BLE auto-wake signal sent to %s", self._mac_address)
+                        last_err: Exception | None = None
+                        for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                            try:
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD,
+                                    response=True,
+                                )
+                                _LOGGER.debug(
+                                    "BLE auto-wake signal sent to %s", self._mac_address
+                                )
+                                last_err = None
+                                break
+                            except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                                last_err = err
+                        if last_err is not None:
+                            raise last_err
                     finally:
                         await client.disconnect()
                 except ImportError:
@@ -257,15 +268,24 @@ class EinkCanvasApiClient:
                                 self._mac_address,
                             )
                         else:
-                            await client.write_gatt_char(
-                                BLE_CHAR_UUID,
-                                BLE_WAKE_PAYLOAD,
-                                response=True,
-                            )
-                            _LOGGER.debug(
-                                "BLE auto-wake signal sent to %s",
-                                self._mac_address,
-                            )
+                            last_err: Exception | None = None
+                            for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                                try:
+                                    await client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD,
+                                        response=True,
+                                    )
+                                    _LOGGER.debug(
+                                        "BLE auto-wake signal sent to %s",
+                                        self._mac_address,
+                                    )
+                                    last_err = None
+                                    break
+                                except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                                    last_err = err
+                            if last_err is not None:
+                                raise last_err
             except Exception as err:
                 _LOGGER.warning("BLE auto-wake failed for %s: %s", self._mac_address, err)
             finally:

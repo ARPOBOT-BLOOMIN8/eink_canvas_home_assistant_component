@@ -46,10 +46,13 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 ### Fixed
 - Translation file consistency/valid JSON for new config field labels.
 - Home Assistant thread-safety violations (callbacks now use thread-safe helpers like `schedule_update_ha_state` and `dispatcher_send`).
+- External settings changes now reflect correctly after "Refresh Info": select/text entities force a refresh so updated `sleep_duration`, `max_idle`, and `idx_wake_sens` values are pulled from the latest cached `/deviceInfo` snapshot.
 - `media_source` compatibility with newer Home Assistant versions (removed deprecated `local_source.LocalSource(...)` initialization).
 - Image upload robustness: use proper query `params` instead of manually building query strings (avoids HTTP/client parsing issues such as duplicate `Content-Length`).
 - Work around device firmware returning invalid HTTP response headers (e.g., duplicate `Content-Length`) by falling back to a lenient raw-socket upload for `/upload`.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.
+- BLE discovery/wake robustness across firmware variants: match additional BLE service UUID `0xFFF0` and try wake writes against both characteristic UUIDs (`0xF001` and `0xFFF1`); config flow BLE device filtering no longer relies on generic name substrings.
+- BLE wake UX: hide BLE config fields and do not create the "Wake (Bluetooth)" button when Home Assistant has no Bluetooth / no connectable BLE proxy available.
 - Reduce redundant `/deviceInfo` calls by sharing a single coordinator snapshot across entities.
 - Increase `clear_screen` timeout from 10s to 30s (E-Ink display refresh takes ~15-20s).
 - Polling: device offline/asleep now logs as INFO (throttled) instead of ERROR.
