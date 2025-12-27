@@ -8,6 +8,8 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 ## [1.7.0] - Unreleased
 
 ### Added
+- **Persistent device info cache**: After a Home Assistant restart, cached sensor values (battery level, storage, etc.) are immediately available — even if the device is asleep. Previously, all sensors showed "unavailable" until the device woke up.
+- New diagnostic sensor **"Last Update"**: Shows the datetime of the last successful device info fetch. Useful for battery-powered devices that are often offline/asleep.
 - New "Sleep" button entity to put the device into sleep mode directly from the UI.
 - New services to send images to the Canvas:
 	- `upload_image_url` (download from URL, optional processing, upload, optional show_now)
@@ -31,7 +33,6 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
 
 ### Changed
-- **BREAKING**: Removed `enable_polling` config option. Periodic HTTP polling caused severe battery drain by resetting the device's idle timer, preventing sleep. The integration now uses a pure push-based model: entities update automatically after user actions (services, buttons) and show the last known value when the device is offline.
 - Entities (sensors, selects, text) now show the last known cached value when the device is offline/asleep instead of becoming "unavailable". This provides a better user experience for battery-powered devices that sleep for hours or days.
 - When `ble_auto_wake` is enabled and a BLE MAC is configured, the integration will attempt a best-effort BLE wake and wait for the device to come online before sending HTTP commands.
 - Default behavior now avoids periodic `/deviceInfo` polling so the Canvas can sleep.
