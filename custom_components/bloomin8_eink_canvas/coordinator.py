@@ -54,6 +54,7 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
             _LOGGER,
             name="BLOOMIN8 E-Ink Canvas",
             update_interval=None,  # No polling — push-only
+            always_update=False,  # Only notify entities when data actually changes
         )
         self._api = api_client
         self._entry_id = entry_id

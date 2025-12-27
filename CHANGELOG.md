@@ -33,6 +33,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
 
 ### Changed
+- Coordinator uses `always_update=False` to reduce unnecessary entity updates when data hasn't changed.
 - Entities (sensors, selects, text) now show the last known cached value when the device is offline/asleep instead of becoming "unavailable". This provides a better user experience for battery-powered devices that sleep for hours or days.
 - When `ble_auto_wake` is enabled and a BLE MAC is configured, the integration will attempt a best-effort BLE wake and wait for the device to come online before sending HTTP commands.
 - Default behavior now avoids periodic `/deviceInfo` polling so the Canvas can sleep.
