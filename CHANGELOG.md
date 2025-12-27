@@ -53,6 +53,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Reduce redundant `/deviceInfo` calls by sharing a single coordinator snapshot across entities.
 - Increase `clear_screen` timeout from 10s to 30s (E-Ink display refresh takes ~15-20s).
 - Polling: device offline/asleep now logs as INFO (throttled) instead of ERROR.
+- Services now support device targeting via Home Assistant's `target` selector — when multiple Canvas devices are registered, you can specify which device(s) to control.
 
 ## [1.6.0] 
 
