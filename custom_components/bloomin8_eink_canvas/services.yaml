@@ -1,36 +1,64 @@
 show_next:
   name: Show Next Image
   description: Display the next image in the current gallery or playlist
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 sleep:
   name: Sleep Device
   description: Put the device into sleep mode
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 reboot:
   name: Reboot Device
   description: Restart the device
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 clear_screen:
   name: Clear Screen
   description: Clear the display screen
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 whistle:
   name: Whistle (Wake Up)
   description: Send a whistle signal to wake up or keep the device active
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 refresh_device_info:
   name: Refresh Device Info
   description: Refresh and update device information
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 update_settings:
   name: Update Device Settings
   description: Update device configuration settings
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Device Name
@@ -84,6 +112,10 @@ upload_image_url:
   description: >
     Download an image from a web URL, convert it to JPEG (and optionally resize/crop to the device
     resolution), upload it to the device and optionally show it immediately.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     url:
       name: Image URL
@@ -133,6 +165,10 @@ upload_image_data:
   description: >
     Upload an image provided as base64-encoded bytes. The integration will convert it to JPEG.
     Optionally, it can also resize/crop to the device resolution.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     image_data:
       name: Image data (base64)
@@ -183,6 +219,10 @@ upload_images_multi:
       - url + optional filename
       - image_data (base64) + optional filename
     The integration converts to JPEG and can optionally resize/crop to the device resolution.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     images:
       name: Images
@@ -222,6 +262,10 @@ upload_dithered_image_data:
   description: >
     Upload pre-processed, dithered raw image data for advanced direct-to-screen rendering.
     (Advanced: you must provide compatible dithered data.)
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     filename:
       name: Filename
@@ -243,6 +287,10 @@ upload_dithered_image_data:
 delete_image:
   name: Delete Image
   description: Delete a specific image from a gallery on the device.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     filename:
       name: Filename
@@ -263,6 +311,10 @@ delete_image:
 create_gallery:
   name: Create Gallery
   description: Create a new empty gallery on the device.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Gallery Name
@@ -275,6 +327,10 @@ create_gallery:
 delete_gallery:
   name: Delete Gallery
   description: Delete a gallery and all contained images.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Gallery Name
@@ -286,12 +342,23 @@ delete_gallery:
 
 list_galleries:
   name: List Galleries
-  description: List galleries on the device (GET /gallery/list). If the Home Assistant version supports service responses, the list will be returned.
+  description: >
+    List galleries on the device (GET /gallery/list). If the Home Assistant version supports
+    service responses, the list will be returned. Note: This service requires exactly one
+    target device.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 show_playlist:
   name: Start Playlist Playback
   description: Start playback of a playlist on the device via the /show API (play_type=2).
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     playlist:
       name: Playlist
@@ -323,6 +390,10 @@ put_playlist:
     Create a new playlist or overwrite an existing one. "items" must be a list of objects.
     Each item should contain at least "name" (image path) and either "duration" (for type=duration)
     or "time" (for type=time).
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Playlist Name
@@ -361,6 +432,10 @@ put_playlist:
 delete_playlist:
   name: Delete Playlist
   description: Delete a playlist.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Playlist Name
@@ -371,12 +446,26 @@ delete_playlist:
 
 list_playlists:
   name: List Playlists
-  description: List playlists on the device (GET /playlist/list). If the Home Assistant version supports service responses, the list will be returned.
+  description: >
+    List playlists on the device (GET /playlist/list). If the Home Assistant version supports
+    service responses, the list will be returned. Note: This service requires exactly one
+    target device.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields: {}
 
 get_playlist:
   name: Get Playlist
-  description: Get a playlist definition (GET /playlist?name=...). If the Home Assistant version supports service responses, the playlist JSON will be returned.
+  description: >
+    Get a playlist definition (GET /playlist?name=...). If the Home Assistant version supports
+    service responses, the playlist JSON will be returned. Note: This service requires exactly
+    one target device.
+  target:
+    entity:
+      domain: media_player
+      integration: bloomin8_eink_canvas
   fields:
     name:
       name: Playlist Name

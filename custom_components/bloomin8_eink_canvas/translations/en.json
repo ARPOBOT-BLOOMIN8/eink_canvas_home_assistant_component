@@ -57,6 +57,14 @@
             "not_supported": "Discovered Bluetooth device is not supported"
         }
     },
+    "exceptions": {
+        "no_target_device": {
+            "message": "No target device found for this service. Please specify a target device or entity."
+        },
+        "multiple_targets_not_supported": {
+            "message": "This service requires exactly one target device. Please select only one device."
+        }
+    },
     "selector": {
         "orientation": {
             "options": {

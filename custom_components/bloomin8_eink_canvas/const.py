@@ -88,4 +88,31 @@ ERROR_UNKNOWN = "unknown"
 
 # Post-wake refresh timeout (shorter than normal to quickly detect if device woke up)
 POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5
-POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5
+
+# Service targeting attributes
+ATTR_DEVICE_ID = "device_id"
+ATTR_ENTITY_ID = "entity_id"
+
+# List of all services (for registration/cleanup)
+SERVICE_NAMES = [
+    "show_next",
+    "sleep",
+    "reboot",
+    "clear_screen",
+    "whistle",
+    "refresh_device_info",
+    "update_settings",
+    "upload_image_url",
+    "upload_image_data",
+    "upload_images_multi",
+    "upload_dithered_image_data",
+    "delete_image",
+    "create_gallery",
+    "delete_gallery",
+    "list_galleries",
+    "show_playlist",
+    "list_playlists",
+    "get_playlist",
+    "put_playlist",
+    "delete_playlist",
+]
