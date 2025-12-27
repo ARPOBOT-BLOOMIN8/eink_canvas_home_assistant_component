@@ -5,6 +5,7 @@ import asyncio
 import logging
 
 from homeassistant.components.button import ButtonEntity
+from homeassistant.components import bluetooth
 from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
@@ -16,12 +17,39 @@ from .const import (
     DOMAIN,
     DEFAULT_NAME,
     CONF_MAC_ADDRESS,
-    BLE_CHAR_UUID,
+    BLE_WAKE_CHAR_UUIDS,
     BLE_WAKE_PAYLOAD,
     POST_WAKE_REFRESH_TIMEOUT_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _ble_wake_possible(hass: HomeAssistant) -> bool:
+    """Return True if HA has a Bluetooth stack that can do connectable BLE.
+
+    We only want to expose the Wake (Bluetooth) button if Home Assistant has
+    at least one connectable BLE scanner (local adapter or BLE proxy).
+
+    Notes:
+    - Rely on HA Bluetooth integration state, not on whether the specific device
+      is currently discovered in the cache (that can fluctuate).
+    - Keep compatibility across HA versions by using feature detection.
+    """
+
+    # Newer HA versions expose async_scanner_count(connectable=...).
+    try:
+        scanner_count = bluetooth.async_scanner_count(hass, connectable=True)  # type: ignore[arg-type]
+        return bool(scanner_count and scanner_count > 0)
+    except TypeError:
+        # Older signature without keyword.
+        try:
+            scanner_count = bluetooth.async_scanner_count(hass)  # type: ignore[call-arg]
+            return bool(scanner_count and scanner_count > 0)
+        except Exception:
+            return False
+    except Exception:
+        return False
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -42,9 +70,17 @@ async def async_setup_entry(
         EinkRefreshButton(hass, config_entry, host, name),
     ]
 
-    # Optional BLE wake button (requires a configured Bluetooth MAC address)
-    if mac_address:
+    # Optional BLE wake button
+    # Only expose if:
+    # - a Bluetooth MAC address is configured
+    # - Home Assistant has Bluetooth/BLE proxy support available
+    if mac_address and _ble_wake_possible(hass):
         buttons.append(EinkBluetoothWakeButton(hass, config_entry, host, name, mac_address))
+    elif mac_address:
+        _LOGGER.debug(
+            "Not creating Wake (Bluetooth) button for %s: no connectable Bluetooth scanner available in Home Assistant",
+            host,
+        )
 
     async_add_entities(buttons, True)
 
@@ -257,12 +293,21 @@ class EinkBluetoothWakeButton(EinkBaseButton):
                     max_attempts=4,
                 )
                 try:
-                    await client.write_gatt_char(
-                        BLE_CHAR_UUID,
-                        BLE_WAKE_PAYLOAD,
-                        response=True,
-                    )
-                    _LOGGER.info("BLE wake signal sent successfully")
+                    last_err: Exception | None = None
+                    for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                        try:
+                            await client.write_gatt_char(
+                                char_uuid,
+                                BLE_WAKE_PAYLOAD,
+                                response=True,
+                            )
+                            _LOGGER.info("BLE wake signal sent successfully")
+                            last_err = None
+                            break
+                        except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                            last_err = err
+                    if last_err is not None:
+                        raise last_err
                 finally:
                     await client.disconnect()
             else:
@@ -272,12 +317,21 @@ class EinkBluetoothWakeButton(EinkBaseButton):
                         _LOGGER.error("Failed to connect to %s", self._mac)
                         return
 
-                    await client.write_gatt_char(
-                        BLE_CHAR_UUID,
-                        BLE_WAKE_PAYLOAD,
-                        response=True,
-                    )
-                    _LOGGER.info("BLE wake signal sent successfully")
+                    last_err: Exception | None = None
+                    for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                        try:
+                            await client.write_gatt_char(
+                                char_uuid,
+                                BLE_WAKE_PAYLOAD,
+                                response=True,
+                            )
+                            _LOGGER.info("BLE wake signal sent successfully")
+                            last_err = None
+                            break
+                        except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                            last_err = err
+                    if last_err is not None:
+                        raise last_err
         except Exception as err:
             _LOGGER.error(
                 "Failed to send BLE wake signal to %s (%s): %s",

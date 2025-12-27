@@ -35,8 +35,9 @@ from .const import (
     ERROR_CANNOT_CONNECT,
     ERROR_INVALID_AUTH,
     ERROR_UNKNOWN,
-    BLE_SERVICE_UUID,
-    BLE_CHAR_UUID,
+    BLE_MANUFACTURER_ID,
+    BLE_SERVICE_UUIDS,
+    BLE_WAKE_CHAR_UUIDS,
     BLE_WAKE_PAYLOAD,
 )
 
@@ -46,15 +47,42 @@ _LOGGER = logging.getLogger(__name__)
 CONF_BLE_DEVICE = "ble_device"
 
 
+def _ble_wake_possible(hass: HomeAssistant) -> bool:
+    """Return True if HA has a Bluetooth stack that can do connectable BLE.
+
+    We hide BLE-related config fields when Home Assistant has no Bluetooth
+    integration/scanner (no local adapter and no BLE proxies).
+    """
+
+    try:
+        count = bluetooth.async_scanner_count(hass, connectable=True)  # type: ignore[arg-type]
+        return bool(count and count > 0)
+    except TypeError:
+        # Older HA versions may not support the connectable kwarg.
+        try:
+            count = bluetooth.async_scanner_count(hass)  # type: ignore[call-arg]
+            return bool(count and count > 0)
+        except Exception:
+            return False
+    except Exception:
+        return False
+
+
 def _is_probably_bloomin8(service_info: bluetooth.BluetoothServiceInfoBleak) -> bool:
     """Best-effort check if a discovered BLE device looks like a Bloomin8 Canvas."""
-    name = (service_info.name or "").lower()
-    if "bloomin" in name or "canvas" in name:
+    # Prefer stable identifiers from the advertisement payload.
+    manufacturer_data = getattr(service_info, "manufacturer_data", None) or {}
+    if BLE_MANUFACTURER_ID in manufacturer_data:
         return True
-    # Some devices advertise their primary service UUIDs.
-    if BLE_SERVICE_UUID.lower() in {u.lower() for u in (service_info.service_uuids or [])}:
+
+    uuids = {u.lower() for u in (service_info.service_uuids or [])}
+    if any(candidate.lower() in uuids for candidate in BLE_SERVICE_UUIDS):
         return True
-    return False
+
+    # Very conservative fallback: some devices may not advertise service UUIDs
+    # reliably, but typically include a brand prefix in the name.
+    name = (service_info.name or "").strip().lower()
+    return name.startswith("bloomin8")
 
 
 def _format_ble_label(service_info: bluetooth.BluetoothServiceInfoBleak) -> str:
@@ -120,8 +148,17 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
                 max_attempts=4,
             )
             try:
-                await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
-                _LOGGER.info("BLE wake signal sent to %s", mac_address)
+                last_err: Exception | None = None
+                for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                    try:
+                        await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD, response=True)
+                        _LOGGER.info("BLE wake signal sent to %s", mac_address)
+                        last_err = None
+                        break
+                    except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                        last_err = err
+                if last_err is not None:
+                    raise last_err
             finally:
                 await client.disconnect()
         except ImportError:
@@ -138,8 +175,17 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
                 if not client.is_connected:
                     _LOGGER.warning("BLE wake: failed to connect to %s", mac_address)
                 else:
-                    await client.write_gatt_char(BLE_CHAR_UUID, BLE_WAKE_PAYLOAD, response=True)
-                    _LOGGER.info("BLE wake signal sent to %s", mac_address)
+                    last_err: Exception | None = None
+                    for char_uuid in BLE_WAKE_CHAR_UUIDS:
+                        try:
+                            await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD, response=True)
+                            _LOGGER.info("BLE wake signal sent to %s", mac_address)
+                            last_err = None
+                            break
+                        except Exception as err:  # noqa: BLE001 - best-effort fallback chain
+                            last_err = err
+                    if last_err is not None:
+                        raise last_err
     except Exception as err:
         _LOGGER.warning(
             "BLE wake failed for %s (%s): %s",
@@ -223,37 +269,50 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during reconfigure: %s", err)
                 errors["base"] = ERROR_UNKNOWN
 
-        connectable_options = _build_ble_selector_options(self.hass, connectable=True)
-        any_options = _build_ble_selector_options(self.hass, connectable=False)
+        ble_possible = _ble_wake_possible(self.hass)
+        connectable_options = _build_ble_selector_options(self.hass, connectable=True) if ble_possible else []
+        any_options = _build_ble_selector_options(self.hass, connectable=False) if ble_possible else []
 
         schema_dict: dict = {
             vol.Required(CONF_HOST, default=reconfigure_entry.data.get(CONF_HOST, "")): str,
             vol.Required(CONF_NAME, default=reconfigure_entry.data.get(CONF_NAME, "BLOOMIN8 E-Ink Canvas")): str,
         }
 
-        # Prefer connectable devices for wake (GATT write requires a connection).
-        if connectable_options:
-            schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=connectable_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+        if ble_possible:
+            # Prefer connectable devices for wake (GATT write requires a connection).
+            if connectable_options:
+                schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=connectable_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
-            )
-        elif any_options:
-            schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=any_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+            elif any_options:
+                schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=any_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
+
+            schema_dict.update(
+                {
+                    vol.Optional(
+                        CONF_MAC_ADDRESS,
+                        default=reconfigure_entry.data.get(CONF_MAC_ADDRESS, ""),
+                    ): str,
+                    vol.Optional(
+                        CONF_BLE_AUTO_WAKE,
+                        default=reconfigure_entry.data.get(
+                            CONF_BLE_AUTO_WAKE,
+                            DEFAULT_BLE_AUTO_WAKE,
+                        ),
+                    ): bool,
+                }
             )
 
         schema_dict.update(
             {
-                vol.Optional(CONF_MAC_ADDRESS, default=reconfigure_entry.data.get(CONF_MAC_ADDRESS, "")): str,
-                vol.Optional(
-                    CONF_BLE_AUTO_WAKE,
-                    default=reconfigure_entry.data.get(CONF_BLE_AUTO_WAKE, DEFAULT_BLE_AUTO_WAKE),
-                ): bool,
                 vol.Required(
                     CONF_ORIENTATION,
                     default=reconfigure_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION),
@@ -303,34 +362,41 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 _LOGGER.exception("Unexpected error during config flow: %s", err)
                 errors["base"] = ERROR_UNKNOWN
 
-        connectable_options = _build_ble_selector_options(self.hass, connectable=True)
-        any_options = _build_ble_selector_options(self.hass, connectable=False)
+        ble_possible = _ble_wake_possible(self.hass)
+        connectable_options = _build_ble_selector_options(self.hass, connectable=True) if ble_possible else []
+        any_options = _build_ble_selector_options(self.hass, connectable=False) if ble_possible else []
 
         schema_dict: dict = {
             vol.Required(CONF_HOST): str,
             vol.Required(CONF_NAME, default="BLOOMIN8 E-Ink Canvas"): str,
         }
 
-        # Prefer connectable devices for wake (GATT write requires a connection).
-        if connectable_options:
-            schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=connectable_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+        if ble_possible:
+            # Prefer connectable devices for wake (GATT write requires a connection).
+            if connectable_options:
+                schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=connectable_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
-            )
-        elif any_options:
-            schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=any_options,
-                    mode=selector.SelectSelectorMode.DROPDOWN,
+            elif any_options:
+                schema_dict[vol.Optional(CONF_BLE_DEVICE)] = selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=any_options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
                 )
+
+            schema_dict.update(
+                {
+                    vol.Optional(CONF_MAC_ADDRESS, default=(self._prefill_mac or "")): str,
+                    vol.Optional(CONF_BLE_AUTO_WAKE, default=DEFAULT_BLE_AUTO_WAKE): bool,
+                }
             )
 
         schema_dict.update(
             {
-                vol.Optional(CONF_MAC_ADDRESS, default=(self._prefill_mac or "")): str,
-                vol.Optional(CONF_BLE_AUTO_WAKE, default=DEFAULT_BLE_AUTO_WAKE): bool,
                 vol.Required(
                     CONF_ORIENTATION,
                     default=DEFAULT_ORIENTATION,

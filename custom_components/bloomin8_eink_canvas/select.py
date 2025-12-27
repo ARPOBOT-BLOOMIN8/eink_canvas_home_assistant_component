@@ -105,7 +105,11 @@ class EinkBaseSelect(SelectEntity):
     def _handle_runtime_data_updated(self) -> None:
         """Handle runtime data updates (no network I/O)."""
         # Thread-safety: use sync helper safe from any thread.
-        self.schedule_update_ha_state(False)
+        # Important: these entities compute their state in async_update() based on
+        # runtime_data.device_info. If we don't force a refresh here, HA will only
+        # re-write the *existing* state and the UI won't reflect external changes
+        # (e.g. settings changed via curl + manual refresh).
+        self.schedule_update_ha_state(True)
 
     @property
     def available(self) -> bool:

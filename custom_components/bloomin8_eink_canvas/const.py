@@ -62,6 +62,20 @@ BLE_SERVICE_UUID = "0000f000-0000-1000-8000-00805f9b34fb"
 BLE_CHAR_UUID = "0000f001-0000-1000-8000-00805f9b34fb"
 BLE_WAKE_PAYLOAD = b"\x01"
 
+# Some firmware variants advertise a different primary service (e.g. 0xFFF0) and
+# use the corresponding wake characteristic (e.g. 0xFFF1). We support both to
+# keep discovery and wake robust across device generations.
+BLE_ALT_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
+BLE_ALT_CHAR_UUID = "0000fff1-0000-1000-8000-00805f9b34fb"
+
+# Manufacturer / company identifier observed in advertisements (little-endian in
+# raw bytes). Example: 0x013F == 319.
+BLE_MANUFACTURER_ID = 0x013F
+
+# Candidates used for discovery and wake attempts.
+BLE_SERVICE_UUIDS: tuple[str, ...] = (BLE_SERVICE_UUID, BLE_ALT_SERVICE_UUID)
+BLE_WAKE_CHAR_UUIDS: tuple[str, ...] = (BLE_CHAR_UUID, BLE_ALT_CHAR_UUID)
+
 # Image processing options
 ORIENTATION_PORTRAIT = "portrait"
 ORIENTATION_LANDSCAPE = "landscape"

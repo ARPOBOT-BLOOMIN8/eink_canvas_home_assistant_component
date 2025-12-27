@@ -358,7 +358,8 @@ class EinkLogSensor(SensorEntity):
     @callback
     def _handle_runtime_data_updated(self) -> None:
         # Thread-safety: callback may be invoked from outside the event loop.
-        self.schedule_update_ha_state(False)
+        # Force a refresh so async_update() runs and recomputes attributes.
+        self.schedule_update_ha_state(True)
 
     @property
     def device_info(self) -> DeviceInfo:
