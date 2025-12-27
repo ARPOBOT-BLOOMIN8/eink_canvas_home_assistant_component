@@ -1157,7 +1157,9 @@ def _register_services(hass: HomeAssistant) -> None:
     ]
 
     for service_name, handler, schema, supports_response in services:
-        kwargs: dict[str, Any] = {"schema": vol.Schema(schema)}
+        # Use ALLOW_EXTRA so that Home Assistant's automatic entity_id/device_id
+        # fields (injected when using `target` in services.yaml) are accepted.
+        kwargs: dict[str, Any] = {"schema": vol.Schema(schema, extra=vol.ALLOW_EXTRA)}
         if supports_response is not None:
             kwargs["supports_response"] = supports_response
 
