@@ -42,6 +42,7 @@ async def async_setup_entry(
     # immediate HTTP fetches (often debounced, but still noisy).
     coordinator_sensors = [
         EinkDeviceInfoSensor(coordinator, hass, config_entry, host, name),
+        EinkLastUpdateSensor(coordinator, hass, config_entry, host, name),
         EinkBatterySensor(coordinator, hass, config_entry, host, name),
         EinkStorageSensor(coordinator, hass, config_entry, host, name),
         EinkCurrentImageSensor(coordinator, hass, config_entry, host, name),
@@ -136,16 +137,33 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
         self._attr_icon = "mdi:information"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    @callback
-    def _handle_coordinator_update(self) -> None:
-        # Online/Offline is based on whether the coordinator could reach the device.
-        # This correctly reflects that the device may be asleep (expected) or unreachable.
-        is_online = bool(self.coordinator.last_update_success)
-        device_info = self._device_info_snapshot()
+    @property
+    def available(self) -> bool:
+        """Return entity availability.
 
-        if is_online and device_info:
-            self._attr_native_value = "Online"
-            self._attr_extra_state_attributes = {
+        Unlike other sensors that show cached values, the Device Info sensor
+        reflects real-time reachability. It's available if we have any data
+        (cached or fresh) to show, but its *value* will be 'Offline' when
+        the device cannot be reached.
+        """
+        return self._device_info_snapshot() is not None
+
+    @property
+    def native_value(self) -> str:
+        """Return 'Online' or 'Offline' based on last poll result."""
+        if self.coordinator.last_update_success:
+            return "Online"
+        return "Offline"
+
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        """Return device attributes."""
+        device_info = self._device_info_snapshot()
+        if not device_info:
+            return None
+
+        if self.coordinator.last_update_success:
+            return {
                 "device_name": device_info.get("name"),
                 "firmware_version": device_info.get("version"),
                 "board_model": device_info.get("board_model"),
@@ -163,21 +181,38 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
                 "play_type": device_info.get("play_type"),
             }
         else:
-            self._attr_native_value = "Offline"
-            # Keep last known attributes visible for diagnostics, but mark as offline.
-            if device_info:
-                self._attr_extra_state_attributes = {
-                    "device_name": device_info.get("name"),
-                    "firmware_version": device_info.get("version"),
-                    "board_model": device_info.get("board_model"),
-                    "screen_model": device_info.get("screen_model"),
-                    "last_known_battery": device_info.get("battery"),
-                    "note": "Device is asleep or unreachable",
-                }
-            else:
-                self._attr_extra_state_attributes = {}
+            # Offline: show last known attributes with note
+            return {
+                "device_name": device_info.get("name"),
+                "firmware_version": device_info.get("version"),
+                "board_model": device_info.get("board_model"),
+                "screen_model": device_info.get("screen_model"),
+                "last_known_battery": device_info.get("battery"),
+                "note": "Device is asleep or unreachable",
+            }
 
-        super()._handle_coordinator_update()
+
+class EinkLastUpdateSensor(EinkBaseCoordinatorSensor):
+    """Sensor showing the datetime of the last successful device info update."""
+
+    def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, hass, config_entry, host, device_name)
+        self._attr_name = "Last Update"
+        self._attr_unique_id = f"eink_display_{host}_last_update"
+        self._attr_device_class = SensorDeviceClass.TIMESTAMP
+        self._attr_icon = "mdi:clock-check-outline"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def available(self) -> bool:
+        """Return True if we have a timestamp (even from cache)."""
+        return self.coordinator.last_successful_update is not None
+
+    @property
+    def native_value(self):
+        """Return the datetime of the last successful update."""
+        return self.coordinator.last_successful_update
 
 
 class EinkBatterySensor(EinkBaseCoordinatorSensor):
