@@ -39,7 +39,9 @@ from .const import (
     ENDPOINT_PLAYLIST_LIST,
     ENDPOINT_STATUS,
     BLE_WAKE_CHAR_UUIDS,
-    BLE_WAKE_PAYLOAD,
+    BLE_WAKE_PAYLOAD_ON,
+    BLE_WAKE_PAYLOAD_OFF,
+    BLE_WAKE_PULSE_GAP_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -159,16 +161,86 @@ class EinkCanvasApiClient:
         elif ok and not prev_ok and recover_message:
             _LOGGER.log(recover_level, "%s", recover_message)
 
-    async def _async_http_ping(self) -> bool:
-        """Quickly check if device is reachable over HTTP."""
+    async def _async_http_ping(self, timeout_seconds: int = 3) -> bool:
+        """Quickly check if device is reachable over HTTP.
+
+        This is a lightweight *connectivity* probe used to avoid noisy error logs
+        when the battery-powered device is asleep/offline.
+
+        Notes:
+        - We treat *any* HTTP response as "reachable" (even 404/500), because it
+          still proves the device answered over TCP/HTTP.
+        - Only connection/timeouts count as "offline".
+        """
         try:
-            async with async_timeout.timeout(3):
+            timeout_seconds = max(1, int(timeout_seconds))
+        except (TypeError, ValueError):
+            timeout_seconds = 3
+
+        try:
+            async with async_timeout.timeout(timeout_seconds):
                 async with self._session.get(
                     f"http://{self._host}{ENDPOINT_STATUS}"
-                ) as response:
-                    return response.status == 200
+                ) as _response:
+                    # Any response means the host is reachable.
+                    return True
         except Exception:
             return False
+
+    async def get_image_bytes(self, image_path: str, *, wake: bool = False, timeout: int = 10) -> bytes | None:
+        """Fetch raw image bytes from the device.
+
+        This is used by the media_player proxy implementation to avoid handing
+        out direct device URLs to clients.
+
+        Important behavior:
+        - By default (wake=False) this will NOT wake the device via BLE.
+        - If the device is asleep/offline, returns None without error spam.
+        - Only accepts absolute device paths (must start with "/") to avoid SSRF.
+        """
+        if not image_path or not isinstance(image_path, str):
+            return None
+        if not image_path.startswith("/"):
+            _LOGGER.debug("Refusing to fetch image bytes for non-path value: %s", image_path)
+            return None
+
+        # Never wake unless explicitly requested.
+        if wake:
+            await self.async_ensure_awake()
+        else:
+            if not await self._async_http_ping():
+                return None
+
+        url = f"http://{self._host}{image_path}"
+        try:
+            async with async_timeout.timeout(timeout):
+                async with self._session.get(url) as response:
+                    if response.status == 200:
+                        _LOGGER.debug(
+                            "Fetched image bytes from device (path=%s, content_type=%s, size=%s)",
+                            image_path,
+                            response.content_type,
+                            response.content_length,
+                        )
+                        return await response.read()
+
+                    body = self._truncate(await response.text())
+                    _LOGGER.debug(
+                        "Image fetch failed (path=%s) status=%s content_type=%s body='%s'",
+                        image_path,
+                        response.status,
+                        response.content_type,
+                        body,
+                    )
+                    return None
+        except Exception as err:
+            _LOGGER.debug(
+                "Image fetch error (path=%s) err=%s: %s",
+                image_path,
+                type(err).__name__,
+                err,
+            )
+            return None
 
     async def async_ensure_awake(self) -> None:
         """Best-effort: wake device via BLE (if enabled) and wait until HTTP is reachable.
@@ -189,6 +261,12 @@ class EinkCanvasApiClient:
         now = time.monotonic()
         # 30s cooldown by default.
         if (now - self._last_ble_wake_attempt) < 30:
+            _LOGGER.debug(
+                "BLE auto-wake skipped due to cooldown (host=%s, mac=%s, cooldown_remaining=%.1fs)",
+                self._host,
+                self._mac_address,
+                30 - (now - self._last_ble_wake_attempt),
+            )
             return
 
         async with self._ble_wake_lock:
@@ -198,6 +276,12 @@ class EinkCanvasApiClient:
 
             now = time.monotonic()
             if (now - self._last_ble_wake_attempt) < 30:
+                _LOGGER.debug(
+                    "BLE auto-wake skipped due to cooldown after lock wait (host=%s, mac=%s, cooldown_remaining=%.1fs)",
+                    self._host,
+                    self._mac_address,
+                    30 - (now - self._last_ble_wake_attempt),
+                )
                 return
             self._last_ble_wake_attempt = now
 
@@ -223,6 +307,18 @@ class EinkCanvasApiClient:
 
             _LOGGER.debug("Auto-waking device via BLE: %s", self._mac_address)
             attempted = False
+            t0 = time.monotonic()
+
+            # One-line summary metrics for debugging "sticky" BLE connections.
+            ble_connect_dt: float | None = None
+            ble_write_dt: float | None = None
+            ble_release_write_dt: float | None = None
+            ble_disconnect_dt: float | None = None
+            ble_disconnect_timed_out = False
+            ble_used_char: str | None = None
+            ble_used_write_response: bool | None = None
+            ble_release_ok: bool | None = None
+            ble_mode = "bleak_retry_connector"
             try:
                 attempted = True
 
@@ -233,23 +329,87 @@ class EinkCanvasApiClient:
                         establish_connection,
                     )
 
-                    client = await establish_connection(
-                        BleakClientWithServiceCache,
-                        ble_device,
-                        name=getattr(ble_device, "name", None) or self._mac_address,
-                        max_attempts=4,
+                    t_connect_start = time.monotonic()
+                    client = await asyncio.wait_for(
+                        establish_connection(
+                            BleakClientWithServiceCache,
+                            ble_device,
+                            name=getattr(ble_device, "name", None) or self._mac_address,
+                            max_attempts=4,
+                        ),
+                        timeout=20,
+                    )
+                    ble_connect_dt = time.monotonic() - t_connect_start
+                    _LOGGER.debug(
+                        "BLE auto-wake connected (host=%s, mac=%s, dt=%.2fs)",
+                        self._host,
+                        self._mac_address,
+                        ble_connect_dt,
                     )
                     try:
                         last_err: Exception | None = None
                         for char_uuid in BLE_WAKE_CHAR_UUIDS:
                             try:
-                                await client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD,
-                                    response=True,
-                                )
+                                t_write_start = time.monotonic()
+                                try:
+                                    # Some BLE proxy stacks can end up holding the connection
+                                    # longer than expected when waiting for a write response.
+                                    # Prefer a short timeout, then fall back to a write without
+                                    # response to reduce the chance of "sticky" connections.
+                                    await asyncio.wait_for(
+                                        client.write_gatt_char(
+                                            char_uuid,
+                                            BLE_WAKE_PAYLOAD_ON,
+                                            response=True,
+                                        ),
+                                        timeout=2,
+                                    )
+                                    ble_used_write_response = True
+                                except asyncio.TimeoutError:
+                                    _LOGGER.debug(
+                                        "BLE wake write timed out waiting for response; retrying without response (host=%s, mac=%s, char=%s)",
+                                        self._host,
+                                        self._mac_address,
+                                        char_uuid,
+                                    )
+                                    await client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD_ON,
+                                        response=False,
+                                    )
+                                    ble_used_write_response = False
+                                ble_write_dt = time.monotonic() - t_write_start
+
+                                # Release pulse: some firmwares require a second write 0x00.
+                                ble_release_ok = False
+                                try:
+                                    if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                        await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                                    t_release_start = time.monotonic()
+                                    await client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD_OFF,
+                                        response=False,
+                                    )
+                                    ble_release_write_dt = time.monotonic() - t_release_start
+                                    ble_release_ok = True
+                                except Exception as err:  # noqa: BLE001 - best-effort
+                                    _LOGGER.debug(
+                                        "BLE wake release write failed (host=%s, mac=%s, char=%s, err=%s: %s)",
+                                        self._host,
+                                        self._mac_address,
+                                        char_uuid,
+                                        type(err).__name__,
+                                        err,
+                                    )
+
+                                ble_used_char = char_uuid
                                 _LOGGER.debug(
-                                    "BLE auto-wake signal sent to %s", self._mac_address
+                                    "BLE auto-wake signal sent (host=%s, mac=%s, char=%s, dt=%.2fs)",
+                                    self._host,
+                                    self._mac_address,
+                                    char_uuid,
+                                    ble_write_dt,
                                 )
                                 last_err = None
                                 break
@@ -258,10 +418,36 @@ class EinkCanvasApiClient:
                         if last_err is not None:
                             raise last_err
                     finally:
-                        await client.disconnect()
+                        t_disconnect_start = time.monotonic()
+                        try:
+                            await asyncio.wait_for(client.disconnect(), timeout=5)
+                        except asyncio.TimeoutError:
+                            ble_disconnect_timed_out = True
+                            _LOGGER.debug(
+                                "BLE auto-wake disconnect timed out (host=%s, mac=%s)",
+                                self._host,
+                                self._mac_address,
+                            )
+                        ble_disconnect_dt = time.monotonic() - t_disconnect_start
+                        _LOGGER.debug(
+                            "BLE auto-wake disconnected (host=%s, mac=%s, dt=%.2fs, total=%.2fs)",
+                            self._host,
+                            self._mac_address,
+                            ble_disconnect_dt,
+                            time.monotonic() - t0,
+                        )
                 except ImportError:
                     # Fallback to plain BleakClient (may log a warning in newer HA).
+                    ble_mode = "bleak"
+                    t_connect_start = time.monotonic()
                     async with BleakClient(ble_device) as client:
+                        ble_connect_dt = time.monotonic() - t_connect_start
+                        _LOGGER.debug(
+                            "BLE auto-wake connected (fallback BleakClient) (host=%s, mac=%s, dt=%.2fs)",
+                            self._host,
+                            self._mac_address,
+                            ble_connect_dt,
+                        )
                         if not client.is_connected:
                             _LOGGER.warning(
                                 "BLE auto-wake: failed to connect to %s",
@@ -271,14 +457,61 @@ class EinkCanvasApiClient:
                             last_err: Exception | None = None
                             for char_uuid in BLE_WAKE_CHAR_UUIDS:
                                 try:
-                                    await client.write_gatt_char(
-                                        char_uuid,
-                                        BLE_WAKE_PAYLOAD,
-                                        response=True,
-                                    )
+                                    t_write_start = time.monotonic()
+                                    try:
+                                        await asyncio.wait_for(
+                                            client.write_gatt_char(
+                                                char_uuid,
+                                                BLE_WAKE_PAYLOAD_ON,
+                                                response=True,
+                                            ),
+                                            timeout=2,
+                                        )
+                                        ble_used_write_response = True
+                                    except asyncio.TimeoutError:
+                                        _LOGGER.debug(
+                                            "BLE wake write timed out waiting for response; retrying without response (fallback BleakClient) (host=%s, mac=%s, char=%s)",
+                                            self._host,
+                                            self._mac_address,
+                                            char_uuid,
+                                        )
+                                        await client.write_gatt_char(
+                                            char_uuid,
+                                            BLE_WAKE_PAYLOAD_ON,
+                                            response=False,
+                                        )
+                                        ble_used_write_response = False
+                                    ble_write_dt = time.monotonic() - t_write_start
+
+                                    ble_release_ok = False
+                                    try:
+                                        if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                            await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                                        t_release_start = time.monotonic()
+                                        await client.write_gatt_char(
+                                            char_uuid,
+                                            BLE_WAKE_PAYLOAD_OFF,
+                                            response=False,
+                                        )
+                                        ble_release_write_dt = time.monotonic() - t_release_start
+                                        ble_release_ok = True
+                                    except Exception as err:  # noqa: BLE001 - best-effort
+                                        _LOGGER.debug(
+                                            "BLE wake release write failed (fallback BleakClient) (host=%s, mac=%s, char=%s, err=%s: %s)",
+                                            self._host,
+                                            self._mac_address,
+                                            char_uuid,
+                                            type(err).__name__,
+                                            err,
+                                        )
+
+                                    ble_used_char = char_uuid
                                     _LOGGER.debug(
-                                        "BLE auto-wake signal sent to %s",
+                                        "BLE auto-wake signal sent (fallback BleakClient) (host=%s, mac=%s, char=%s, dt=%.2fs)",
+                                        self._host,
                                         self._mac_address,
+                                        char_uuid,
+                                        ble_write_dt,
                                     )
                                     last_err = None
                                     break
@@ -286,16 +519,45 @@ class EinkCanvasApiClient:
                                     last_err = err
                             if last_err is not None:
                                 raise last_err
+                    _LOGGER.debug(
+                        "BLE auto-wake finished (fallback BleakClient) (host=%s, mac=%s, total=%.2fs)",
+                        self._host,
+                        self._mac_address,
+                        time.monotonic() - t0,
+                    )
             except Exception as err:
                 _LOGGER.warning("BLE auto-wake failed for %s: %s", self._mac_address, err)
             finally:
                 if attempted and self._ble_wake_wait_seconds > 0:
                     await asyncio.sleep(self._ble_wake_wait_seconds)
 
+            _LOGGER.debug(
+                "BLE auto-wake summary (host=%s, mac=%s, mode=%s, connect_dt=%s, write_dt=%s, release_dt=%s, release_ok=%s, disconnect_dt=%s, disconnect_timeout=%s, char=%s, write_response=%s, total_ble_dt=%.2fs)",
+                self._host,
+                self._mac_address,
+                ble_mode,
+                None if ble_connect_dt is None else f"{ble_connect_dt:.2f}s",
+                None if ble_write_dt is None else f"{ble_write_dt:.2f}s",
+                None if ble_release_write_dt is None else f"{ble_release_write_dt:.2f}s",
+                ble_release_ok,
+                None if ble_disconnect_dt is None else f"{ble_disconnect_dt:.2f}s",
+                ble_disconnect_timed_out,
+                ble_used_char,
+                ble_used_write_response,
+                time.monotonic() - t0,
+            )
+
             # Wait for device to come online over Wi-Fi.
             start = time.monotonic()
             while (time.monotonic() - start) < self._http_online_timeout_seconds:
                 if await self._async_http_ping():
+                    _LOGGER.debug(
+                        "BLE auto-wake HTTP online (host=%s, mac=%s, http_wait_dt=%.2fs, max_wait=%ss)",
+                        self._host,
+                        self._mac_address,
+                        time.monotonic() - start,
+                        self._http_online_timeout_seconds,
+                    )
                     return
                 await asyncio.sleep(2)
 
@@ -327,6 +589,11 @@ class EinkCanvasApiClient:
             else:
                 # Polling path: never wake. Only query if already online.
                 if not await self._async_http_ping():
+                    _LOGGER.debug(
+                        "Skipping %s because device is offline/asleep and wake=False (host=%s)",
+                        key,
+                        self._host,
+                    )
                     return None
             async with async_timeout.timeout(10):
                 async with self._session.get(url) as response:
@@ -385,7 +652,16 @@ class EinkCanvasApiClient:
                 await self.async_ensure_awake()
             else:
                 # Polling path: never wake. Only query if already online.
-                if not await self._async_http_ping():
+                # Use a slightly longer ping when the caller provided a custom
+                # timeout (e.g. post-BLE-wake refresh): the device may need a
+                # couple seconds to bring Wi-Fi back up.
+                ping_timeout = min(int(request_timeout), 5)
+                if not await self._async_http_ping(timeout_seconds=ping_timeout):
+                    _LOGGER.debug(
+                        "Skipping %s because device is offline/asleep and wake=False (host=%s)",
+                        key,
+                        self._host,
+                    )
                     return None
             async with async_timeout.timeout(request_timeout):
                 async with self._session.get(url) as response:

@@ -60,7 +60,16 @@ SIGNAL_DEVICE_INFO_UPDATED = f"{DOMAIN}_device_info_updated"
 # Confirmed BLE details from reverse engineering (mistrsoft/bloomin8_bt_wake)
 BLE_SERVICE_UUID = "0000f000-0000-1000-8000-00805f9b34fb"
 BLE_CHAR_UUID = "0000f001-0000-1000-8000-00805f9b34fb"
-BLE_WAKE_PAYLOAD = b"\x01"
+# Newer reverse engineering indicates wake behaves like a short "pulse":
+# write 0x01 (assert) and then 0x00 (release).
+BLE_WAKE_PAYLOAD_ON = b"\x01"
+BLE_WAKE_PAYLOAD_OFF = b"\x00"
+BLE_WAKE_PULSE: tuple[bytes, bytes] = (BLE_WAKE_PAYLOAD_ON, BLE_WAKE_PAYLOAD_OFF)
+# Small gap between the two writes; keep conservative and fast.
+BLE_WAKE_PULSE_GAP_SECONDS = 0.05
+
+# Backwards compatibility: older call sites may still import BLE_WAKE_PAYLOAD.
+BLE_WAKE_PAYLOAD = BLE_WAKE_PAYLOAD_ON
 
 # Some firmware variants advertise a different primary service (e.g. 0xFFF0) and
 # use the corresponding wake characteristic (e.g. 0xFFF1). We support both to

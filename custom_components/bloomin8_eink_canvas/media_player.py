@@ -1,6 +1,7 @@
 """Support for BLOOMIN8 E-Ink Canvas."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -50,6 +51,13 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# Media-player cards (and other clients) may refresh images frequently. If they load
+# the image directly from the device, each HTTP request can reset the device's idle
+# timer and prevent auto-sleep. To avoid that, we serve images via HA's
+# media_player proxy and cache the bytes in-memory for a short time.
+_MEDIA_IMAGE_CACHE_TTL_SECONDS = 60
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -96,7 +104,10 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         self._attr_unique_id = f"eink_display_{host}_media_player"
         self._attr_state = MediaPlayerState.ON
         self._attr_media_content_type = MediaType.IMAGE
-        self._attr_media_image_remotely_accessible = True
+        # Force Home Assistant to proxy the image instead of handing out a direct
+        # device URL to clients. This avoids clients repeatedly requesting the
+        # device image and keeping the Canvas awake.
+        self._attr_media_image_remotely_accessible = False
         self._attr_has_entity_name = True
         self._device_info = None
         self._screen_width = None
@@ -106,6 +117,13 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         self._attr_should_poll = False
         self._unsub_dispatcher = None
         self._signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{config_entry.entry_id}"
+
+        # In-memory cache for the currently displayed image.
+        self._media_image_cache_lock = asyncio.Lock()
+        self._media_image_cache_path: str | None = None
+        self._media_image_cache_bytes: bytes | None = None
+        self._media_image_cache_content_type: str | None = None
+        self._media_image_cache_fetched_at: float = 0.0
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks when entity is added."""
@@ -209,6 +227,83 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         if self._device_info and self._device_info.get("image"):
             return f"http://{self._host}{self._device_info['image']}"
         return None
+
+    async def async_get_media_image(self) -> tuple[bytes, str] | None:
+        """Return bytes for the current media image.
+
+        Home Assistant will serve this through the media_player proxy endpoint.
+        We keep a small in-memory cache to avoid hitting the device repeatedly
+        if the UI refreshes the image frequently.
+        """
+        image_path: str | None = None
+        if self._device_info:
+            image_path = self._device_info.get("image")
+
+        if not image_path:
+            return None
+
+        now = time.monotonic()
+
+        async with self._media_image_cache_lock:
+            cached_path = self._media_image_cache_path
+            cached_bytes = self._media_image_cache_bytes
+            cached_type = self._media_image_cache_content_type
+            cached_at = self._media_image_cache_fetched_at
+
+            # Fresh cache hit
+            if (
+                cached_path == image_path
+                and cached_bytes is not None
+                and cached_type is not None
+                and (now - cached_at) < _MEDIA_IMAGE_CACHE_TTL_SECONDS
+            ):
+                _LOGGER.debug(
+                    "Serving cached media image via HA proxy (path=%s, age=%.1fs)",
+                    image_path,
+                    now - cached_at,
+                )
+                return (cached_bytes, cached_type)
+
+            runtime_data = self._config_entry.runtime_data
+            api_client = runtime_data.api_client
+
+            # Never wake the device just to serve an image to the UI.
+            _LOGGER.debug(
+                "Fetching media image from device for HA proxy (path=%s)", image_path
+            )
+            image_bytes = await api_client.get_image_bytes(image_path, wake=False)
+
+            if not image_bytes:
+                # If the device is asleep/offline, returning the last cached
+                # image is better than repeatedly trying (which could keep it
+                # awake once it wakes).
+                if cached_path == image_path and cached_bytes is not None and cached_type is not None:
+                    _LOGGER.debug(
+                        "Device image fetch failed; serving stale cached image (path=%s)",
+                        image_path,
+                    )
+                    return (cached_bytes, cached_type)
+                return None
+
+            # Guess content-type from extension.
+            lower = image_path.lower()
+            if lower.endswith(".png"):
+                content_type = "image/png"
+            elif lower.endswith(".gif"):
+                content_type = "image/gif"
+            elif lower.endswith(".bmp"):
+                content_type = "image/bmp"
+            elif lower.endswith(".webp"):
+                content_type = "image/webp"
+            else:
+                content_type = "image/jpeg"
+
+            self._media_image_cache_path = image_path
+            self._media_image_cache_bytes = image_bytes
+            self._media_image_cache_content_type = content_type
+            self._media_image_cache_fetched_at = now
+
+            return (image_bytes, content_type)
 
     @property
     def media_title(self) -> str | None:
