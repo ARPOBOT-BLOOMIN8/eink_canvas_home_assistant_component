@@ -57,6 +57,8 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - External settings changes now reflect correctly after "Refresh Info": select/text entities force a refresh so updated `sleep_duration`, `max_idle`, and `idx_wake_sens` values are pulled from the latest cached `/deviceInfo` snapshot.
 - `media_source` compatibility with newer Home Assistant versions (removed deprecated `local_source.LocalSource(...)` initialization).
 - `media_source` browsing compatibility across Home Assistant versions (handle `generate_media_source_id()` signature differences).
+- Media Player: accept Home Assistant's `MediaType.IMAGE` ("image") in content-type filtering (in addition to MIME types like `image/png`).
+- Remove unused `media_source.py` provider to avoid load errors from Home Assistant API changes (media browsing is handled by the media player entity).
 - Image upload robustness: use proper query `params` instead of manually building query strings (avoids HTTP/client parsing issues such as duplicate `Content-Length`).
 - Work around device firmware returning invalid HTTP response headers (e.g., duplicate `Content-Length`) by falling back to a lenient raw-socket upload for `/upload`.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.
