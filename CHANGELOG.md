@@ -28,7 +28,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 	- `get_playlist` (fetch a playlist via `/playlist?name=...`)
 - BLE device selection dropdown in the config flow (uses Home Assistant Bluetooth discoveries).
 - Bluetooth discovery flow support (`async_step_bluetooth`) to prefill the BLE address when the device is discovered.
-- Optional Bluetooth wake button (BLE) when a Bluetooth MAC address is configured.
+- Optional Bluetooth wake button (BLE) when a Bluetooth MAC address is configured (Sourced from https://github.com/mistrsoft/bloomin8_bt_wake)
 - Automatic device info refresh after BLE wake button press (with short 5s timeout).
 - Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
 
@@ -36,18 +36,26 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Coordinator uses `always_update=False` to reduce unnecessary entity updates when data hasn't changed.
 - Entities (sensors, selects, text) now show the last known cached value when the device is offline/asleep instead of becoming "unavailable". This provides a better user experience for battery-powered devices that sleep for hours or days.
 - When `ble_auto_wake` is enabled and a BLE MAC is configured, the integration will attempt a best-effort BLE wake and wait for the device to come online before sending HTTP commands.
+- Wake behavior is now centralized and supports an "auto" mode: `wake=None` means "only wake when BLE auto-wake is enabled and a MAC is configured" (battery-safe by default, reliable for UI actions when explicitly enabled).
 - Default behavior now avoids periodic `/deviceInfo` polling so the Canvas can sleep.
 - When polling is disabled, entities update from cached runtime data after a manual refresh (service/button).
 - Config flow: if a BLE address is configured, send a BLE wake signal and wait ~10 seconds before validating the IP connection.
 - `manifest.json`: declare Bluetooth discovery matcher for Bloomin8 service UUID.
 - Internals: centralize `/deviceInfo` fetching via a shared `DataUpdateCoordinator` to avoid one HTTP call per entity.
 - Internals: sensors and the media player consume coordinator snapshots; action-driven operations can push a fresh snapshot to update entities immediately.
+- Media Player: album art / current image is now served via Home Assistant's media player proxy (and cached briefly in-memory) so dashboards/clients don't repeatedly fetch the image directly from the device and prevent auto-sleep.
+- Internals: add an API helper to fetch raw image bytes (`get_image_bytes`) used by the media player proxy path.
+- Diagnostic "Device Info" sensor no longer performs network I/O; it infers "Online" vs "Asleep (assumed)" from the age of the last successful snapshot vs `max_idle`.
+- Reachability checks no longer use HTTP requests (which can reset `max_idle`); a short TCP connect probe is used instead to avoid keeping the device awake.
+- Media Player: removed TURN_ON/TURN_OFF capability so dashboards no longer show a misleading "Off" control.
 
 ### Fixed
 - Translation file consistency/valid JSON for new config field labels.
+- `sensor.bloomin8_e_ink_canvas_last_update` is now restored across Home Assistant restarts (falls back to HA's restore state if the coordinator cache has no timestamp yet).
 - Home Assistant thread-safety violations (callbacks now use thread-safe helpers like `schedule_update_ha_state` and `dispatcher_send`).
 - External settings changes now reflect correctly after "Refresh Info": select/text entities force a refresh so updated `sleep_duration`, `max_idle`, and `idx_wake_sens` values are pulled from the latest cached `/deviceInfo` snapshot.
 - `media_source` compatibility with newer Home Assistant versions (removed deprecated `local_source.LocalSource(...)` initialization).
+- `media_source` browsing compatibility across Home Assistant versions (handle `generate_media_source_id()` signature differences).
 - Image upload robustness: use proper query `params` instead of manually building query strings (avoids HTTP/client parsing issues such as duplicate `Content-Length`).
 - Work around device firmware returning invalid HTTP response headers (e.g., duplicate `Content-Length`) by falling back to a lenient raw-socket upload for `/upload`.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.
@@ -57,6 +65,11 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Increase `clear_screen` timeout from 10s to 30s (E-Ink display refresh takes ~15-20s).
 - Polling: device offline/asleep now logs as INFO (throttled) instead of ERROR.
 - Services now support device targeting via Home Assistant's `target` selector — when multiple Canvas devices are registered, you can specify which device(s) to control.
+- Improve troubleshooting for sleep/battery issues: add targeted DEBUG logs when requests are skipped because the device is offline/asleep (wake=False), when media images are served from cache vs fetched, and BLE auto-wake connect/write/disconnect timing.
+- BLE wake reliability: avoid potentially "sticky" BLE proxy connections by timing out response-required GATT writes and falling back to writes without response; add a disconnect timeout so the connection is released promptly.
+- BLE wake reliability: send the wake signal as a short pulse (0x01 then 0x00), matching observed behavior. https://github.com/mistrsoft/bloomin8_bt_wake/issues/1#issuecomment-3694216426
+- BLE wake button: post-wake refresh now retries and uses a wake-enabled `/deviceInfo` request to avoid being skipped while Wi‑Fi is still coming up.
+- Device Info sensor: after manual refresh / BLE wake updates pushed into the coordinator, the coordinator is now correctly marked as successful so "Asleep (assumed)" does not linger from a previous failed refresh.
 
 ## [1.6.0] 
 

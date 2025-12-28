@@ -84,6 +84,8 @@ update_settings:
       name: Max Idle Time (seconds)
       description: >
         Device setting: maximum time the Canvas can be idle before going to sleep.
+        Tip: very low values (e.g. 10–30 seconds) can make the device fall asleep between Home Assistant actions.
+        If you use such low values, consider enabling BLE auto-wake to improve reliability.
         Note: if the integration option "enable_polling" is enabled, the polling interval is
         automatically chosen to be larger than this value (so polling should not prevent sleep).
       required: true

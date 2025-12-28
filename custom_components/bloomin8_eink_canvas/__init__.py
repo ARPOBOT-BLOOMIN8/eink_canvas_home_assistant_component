@@ -10,7 +10,7 @@ import re
 import unicodedata
 from urllib.parse import urlparse
 import voluptuous as vol
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Callable, TypeAlias
 
 from PIL import Image
@@ -20,7 +20,6 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform, CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.helpers import device_registry as dr, entity_registry as er
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.dispatcher import async_dispatcher_send, dispatcher_send
 import homeassistant.helpers.config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -116,15 +115,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: EinkCanvasConfigEntry) -
         entry_id=entry.entry_id,
     )
 
-    # Load cached data from disk first (survives HA restarts).
-    await coordinator.async_load_cached_data()
-
-    # Try to fetch fresh data (non-blocking; doesn't fail setup if device is asleep).
-    await coordinator.async_refresh()
-
-    # Store runtime data
+    # Store runtime data early so platforms can reference it even if the device is asleep.
     runtime_data = RuntimeData(api_client=api_client, coordinator=coordinator)
     entry.runtime_data = runtime_data
+
+    # Store runtime data in hass.data for multi-device service lookup
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN][entry.entry_id] = runtime_data
 
     # Keep runtime_data.device_info in sync with coordinator snapshots.
     # This allows non-coordinator entities (select/text) to update from the same cache.
@@ -138,9 +135,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: EinkCanvasConfigEntry) -
 
     runtime_data.unsub_coordinator_listener = coordinator.async_add_listener(_on_coordinator_update)
 
-    # Store runtime data in hass.data for multi-device service lookup
-    hass.data.setdefault(DOMAIN, {})
-    hass.data[DOMAIN][entry.entry_id] = runtime_data
+    # Load cached data from disk first (survives HA restarts).
+    await coordinator.async_load_cached_data()
+    if coordinator.data is not None and runtime_data.device_info is None:
+        runtime_data.device_info = coordinator.data
+        async_dispatcher_send(hass, signal)
+
+    # Try to fetch fresh data.
+    # IMPORTANT: If the device is asleep, the refresh returns None; we must not
+    # overwrite cached data with None (otherwise all entities become unavailable
+    # after HA restart).
+    cached_snapshot = coordinator.data
+    await coordinator.async_refresh()
+    if coordinator.data is None and cached_snapshot is not None:
+        coordinator.last_update_success = False
+        coordinator.async_set_updated_data(cached_snapshot)
+        runtime_data.device_info = cached_snapshot
+        async_dispatcher_send(hass, signal)
 
     # Create device registration
     device_registry = dr.async_get(hass)

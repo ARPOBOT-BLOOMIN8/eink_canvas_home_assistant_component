@@ -253,6 +253,16 @@ class EinkMaxIdleSelect(EinkBaseSelect):
             _LOGGER.error("Invalid max idle option: %s", option)
             return
 
+        new_max_idle = MAX_IDLE_OPTIONS[option]
+        # Very low idle times can make the device fall asleep between HA actions.
+        # This is a common source of "device offline" confusion.
+        if 0 < new_max_idle <= 30:
+            _LOGGER.warning(
+                "Max Idle Time set to %ss. Very low values can cause frequent deep sleep; "
+                "consider enabling BLE auto-wake for reliable automations/UI.",
+                new_max_idle,
+            )
+
         # Get current device settings
         device_info = self._get_device_info()
         if not device_info:
@@ -266,7 +276,7 @@ class EinkMaxIdleSelect(EinkBaseSelect):
             {
                 "name": device_info.get("name", "E-Ink Canvas"),
                 "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": MAX_IDLE_OPTIONS[option],
+                "max_idle": new_max_idle,
                 "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,

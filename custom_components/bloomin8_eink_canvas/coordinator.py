@@ -83,8 +83,10 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
                     )
                 except (ValueError, TypeError):
                     pass
-            # Populate coordinator data without triggering a refresh.
-            self.async_set_updated_data(cached)
+            # Populate coordinator data without marking it as a *fresh* fetch.
+            # Using self.async_set_updated_data() would overwrite the restored
+            # timestamp with utcnow() and would immediately re-save the cache.
+            super().async_set_updated_data(cached)
 
     async def _async_save_cache(self) -> None:
         """Persist the current data to disk (including timestamp)."""
@@ -99,6 +101,13 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
         if data is not None:
             # Update timestamp on fresh data.
             self._last_successful_update = dt_util.utcnow()
+            # Treat pushed snapshots as successful updates.
+            # DataUpdateCoordinator only toggles last_update_success when a refresh
+            # runs; for our push-based model we must keep this in sync so the
+            # diagnostic Device Info sensor can reflect reality after manual refresh/
+            # BLE wake.
+            self.last_update_success = True
+            self.last_exception = None
         super().async_set_updated_data(data)
         if data is not None:
             # Fire-and-forget save (non-blocking).
