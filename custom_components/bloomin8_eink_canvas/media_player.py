@@ -353,7 +353,8 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         """Play media - show image using /show API."""
-        if not media_type.startswith("image/"):
+        # HA may pass MediaType.IMAGE ("image") without a trailing slash.
+        if not (media_type.startswith("image/") or media_type == "image"):
             _LOGGER.error("Only images are supported, got: %s", media_type)
             return
 
@@ -666,7 +667,11 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     return await local_source.async_browse_media(
                         self.hass,
                         "",
-                        content_filter=lambda item: item.media_content_type.startswith("image/"),
+                        content_filter=lambda item: item.media_content_type
+                        and (
+                            item.media_content_type.startswith("image/")
+                            or item.media_content_type == "image"
+                        ),
                     )
 
                 if hasattr(ha_media_source, "generate_media_source_id"):
@@ -680,7 +685,11 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     return await ha_media_source.async_browse_media(
                         self.hass,
                         local_root,
-                        content_filter=lambda item: item.media_content_type.startswith("image/"),
+                        content_filter=lambda item: item.media_content_type
+                        and (
+                            item.media_content_type.startswith("image/")
+                            or item.media_content_type == "image"
+                        ),
                     )
 
                 raise ValueError(
@@ -690,7 +699,11 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
-                    content_filter=lambda item: item.media_content_type.startswith('image/')
+                    content_filter=lambda item: item.media_content_type
+                    and (
+                        item.media_content_type.startswith("image/")
+                        or item.media_content_type == "image"
+                    ),
                 )
         except Exception as err:
             # This often happens when Home Assistant has no media directory configured.
