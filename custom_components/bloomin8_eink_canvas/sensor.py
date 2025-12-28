@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -86,6 +87,17 @@ class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
             return self.coordinator.data
         return self._config_entry.runtime_data.device_info
 
+    async def async_added_to_hass(self) -> None:
+        """Initialize state from cached coordinator data.
+
+        After a Home Assistant restart, the coordinator may already hold cached
+        data *before* entities are created. In that case no coordinator update
+        is emitted after the entity is added, so we proactively apply the
+        snapshot once to avoid entities staying unavailable/unknown.
+        """
+        await super().async_added_to_hass()
+        self._handle_coordinator_update()
+
     @property
     def available(self) -> bool:
         """Return entity availability.
@@ -140,6 +152,27 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
         self._attr_icon = "mdi:information"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
+        # Local timer (no network) to update Online/Asleep assumption over time.
+        self._unsub_tick = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+
+        # Update regularly so the state can transition from Online -> Asleep
+        # even when the device sleeps and no coordinator refresh occurs.
+        # This does NOT perform any I/O.
+        self._unsub_tick = async_track_time_interval(
+            self.hass,
+            lambda _now: self.schedule_update_ha_state(False),
+            timedelta(seconds=10),
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        if self._unsub_tick is not None:
+            self._unsub_tick()
+            self._unsub_tick = None
+        await super().async_will_remove_from_hass()
+
     @property
     def available(self) -> bool:
         """Return entity availability.
@@ -153,10 +186,39 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
 
     @property
     def native_value(self) -> str:
-        """Return 'Online' or 'Offline' based on last poll result."""
-        if self.coordinator.last_update_success:
+        """Return an availability summary without waking the device.
+
+        We do NOT ping here because any HTTP request can reset max_idle.
+        Instead we infer "Asleep" when the last successful device snapshot is
+        older than max_idle (+ small grace).
+        """
+        snapshot = self._device_info_snapshot()
+        if not snapshot:
+            return "Offline"
+
+        # If the last coordinator refresh failed, we know it was unreachable.
+        if not self.coordinator.last_update_success:
+            return "Offline"
+
+        last_ok = self.coordinator.last_successful_update
+        if last_ok is None:
             return "Online"
-        return "Offline"
+
+        # Infer sleep based on configured max_idle.
+        max_idle = snapshot.get("max_idle")
+        try:
+            # Normalize Any/None to something int() accepts.
+            max_idle_s = int(str(max_idle))
+        except (TypeError, ValueError):
+            max_idle_s = 0
+
+        if max_idle_s > 0:
+            age_s = (dt_util.utcnow() - last_ok).total_seconds()
+            # Grace avoids flipping state due to clock jitter.
+            if age_s > (max_idle_s + 5):
+                return "Asleep (assumed)"
+
+        return "Online"
 
     @property
     def extra_state_attributes(self) -> dict | None:

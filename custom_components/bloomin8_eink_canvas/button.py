@@ -436,21 +436,36 @@ class EinkBluetoothWakeButton(EinkBaseButton):
             runtime_data = self._config_entry.runtime_data
             api_client = runtime_data.api_client
             coordinator = runtime_data.coordinator
-            
-            # Use short timeout for post-wake refresh
-            device_info = await api_client.get_device_info(
-                wake=False,
-                timeout=POST_WAKE_REFRESH_TIMEOUT_SECONDS,
-            )
-            
-            if device_info:
-                runtime_data.device_info = device_info
-                coordinator.async_set_updated_data(device_info)
-                _LOGGER.debug("Device info refreshed after BLE wake")
-            else:
-                _LOGGER.debug(
-                    "Device did not respond after BLE wake (may still be waking up)"
+
+            # Post-wake path: DO try the endpoint even if a quick ping fails.
+            # Otherwise we can incorrectly skip while Wi‑Fi is still coming up.
+            #
+            # Note: wake=True here does *not* necessarily trigger another BLE wake.
+            # If BLE auto-wake is disabled in the API client, it simply bypasses
+            # the pre-ping skip and attempts the HTTP request.
+            max_attempts = 3
+            for attempt in range(1, max_attempts + 1):
+                device_info = await api_client.get_device_info(
+                    wake=True,
+                    timeout=POST_WAKE_REFRESH_TIMEOUT_SECONDS,
                 )
+
+                if device_info:
+                    runtime_data.device_info = device_info
+                    coordinator.async_set_updated_data(device_info)
+                    _LOGGER.debug(
+                        "Device info refreshed after BLE wake (attempt %s/%s)",
+                        attempt,
+                        max_attempts,
+                    )
+                    return
+
+                if attempt < max_attempts:
+                    await asyncio.sleep(2)
+
+            _LOGGER.debug(
+                "Device did not respond after BLE wake (still offline/asleep?)"
+            )
         except Exception as err:
             _LOGGER.debug(
                 "Failed to refresh device info after BLE wake: %s",

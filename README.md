@@ -24,6 +24,10 @@ If your Canvas often sleeps (Deep Sleep) or is not reachable via IP right away, 
   * **BLE Wake Button (optional):** If you configure the device's Bluetooth MAC address, Home Assistant will expose a **Wake (Bluetooth)** button entity.
   * **Auto-wake before HTTP actions (optional):** Enable `ble_auto_wake` to let the integration try a best-effort BLE wake **before sending HTTP API commands**.
 
+Notes:
+
+  * If you set the device's **Max Idle Time** very low (e.g. **10 seconds**), the Canvas may fall asleep between Home Assistant actions and UI interactions. In this case even with BLE wake actions could take long.
+
 Requirements:
 
   * Home Assistant Bluetooth (local adapter) **or** ESPHome Bluetooth proxies
@@ -143,6 +147,8 @@ You can change it in Home Assistant via:
   * the **`bloomin8_eink_canvas.update_settings`** service (field `max_idle`).
 
 By default, `enable_polling` is **disabled** so the Canvas can sleep (Deep Sleep) and save power/battery.
+
+Practical tip: If you configure **Max Idle Time** to a very low value (e.g. 10–30s), expect more frequent wake-ups. This can make automations feel flaky unless BLE wake is configured (Wake button / `ble_auto_wake`).
 
 If you want state updates without preventing sleep:
 

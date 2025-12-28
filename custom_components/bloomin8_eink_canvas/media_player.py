@@ -81,9 +81,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     _attr_supported_features = (
         MediaPlayerEntityFeature.PLAY_MEDIA |
         MediaPlayerEntityFeature.BROWSE_MEDIA |
-        MediaPlayerEntityFeature.NEXT_TRACK |
-        MediaPlayerEntityFeature.TURN_ON |
-        MediaPlayerEntityFeature.TURN_OFF
+        MediaPlayerEntityFeature.NEXT_TRACK
     )
 
     def __init__(
@@ -136,6 +134,10 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             self._signal,
             self._handle_runtime_data_updated,
         )
+
+        # Apply cached device info once on startup so the entity is usable
+        # immediately after HA restart even if the device is asleep.
+        self._handle_coordinator_update()
 
     async def async_will_remove_from_hass(self) -> None:
         """Clean up callbacks."""
@@ -267,11 +269,14 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             runtime_data = self._config_entry.runtime_data
             api_client = runtime_data.api_client
 
-            # Never wake the device just to serve an image to the UI.
+            # By default we do not want UI image refreshes to keep the device awake.
+            # However, if the user explicitly enabled BLE auto-wake, we allow an
+            # "auto" wake here so the UI can still show the current image when
+            # the device is asleep.
             _LOGGER.debug(
                 "Fetching media image from device for HA proxy (path=%s)", image_path
             )
-            image_bytes = await api_client.get_image_bytes(image_path, wake=False)
+            image_bytes = await api_client.get_image_bytes(image_path, wake=None)
 
             if not image_bytes:
                 # If the device is asleep/offline, returning the last cached
@@ -665,7 +670,13 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     )
 
                 if hasattr(ha_media_source, "generate_media_source_id"):
-                    local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN)
+                    # HA API signature differs across versions:
+                    # - older: generate_media_source_id(domain)
+                    # - newer: generate_media_source_id(domain, identifier)
+                    try:
+                        local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN, "")
+                    except TypeError:
+                        local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN)
                     return await ha_media_source.async_browse_media(
                         self.hass,
                         local_root,
