@@ -112,6 +112,10 @@ ERROR_UNKNOWN = "unknown"
 # Post-wake refresh timeout (shorter than normal to quickly detect if device woke up)
 POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5
 
+# Initial delay after sending a BLE wake pulse before attempting the first HTTP refresh.
+# Many devices need a couple seconds to bring Wi‑Fi + HTTP up after BLE wake.
+POST_WAKE_INITIAL_DELAY_SECONDS = 4
+
 # Service targeting attributes
 ATTR_DEVICE_ID = "device_id"
 ATTR_ENTITY_ID = "entity_id"

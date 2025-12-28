@@ -1,5 +1,6 @@
 {
     "config": {
+        "flow_title": "{name} ({address})",
         "step": {
             "user": {
                 "title": "Connect to BLOOMIN8 E-Ink Canvas",
@@ -17,7 +18,7 @@
                 "data_description": {
                     "ble_device": "Optional: pick your Canvas from Home Assistant's discovered Bluetooth devices (requires Bluetooth / BLE proxies). If set, the device will be woken via BLE and the setup will wait ~10s before connecting via IP.",
                     "mac_address": "Optional: used to wake the device via BLE when it is in deep sleep (format: AA:BB:CC:DD:EE:FF). If set, the setup will wake the device and wait ~10s before connecting via IP.",
-                    "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy). Tip: if you set the device's Max Idle Time very low (e.g. 10–30s), the Canvas may frequently sleep between Home Assistant actions; auto-wake helps reliability.",
+                    "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy). Tip: if you set the device's Max Idle Time very low (e.g. 10–30s), the Canvas may frequently sleep between Home Assistant actions; set max idle to 1 minute or longer so BLE wake is not that often needed and slow down actions.",
                     "orientation": "Select portrait or landscape based on how your frame is mounted",
                     "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
                     "contain_color": "Background color used when image doesn't fill the screen (contain mode)"
@@ -39,7 +40,7 @@
                 "data_description": {
                     "ble_device": "Optional: pick your Canvas from Home Assistant's discovered Bluetooth devices (requires Bluetooth / BLE proxies). If set, the device will be woken via BLE and the setup will wait ~10s before connecting via IP.",
                     "mac_address": "Optional: used to wake the device via BLE when it is in deep sleep (format: AA:BB:CC:DD:EE:FF). If set, the setup will wake the device and wait ~10s before connecting via IP.",
-                    "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy). Tip: if you set the device's Max Idle Time very low (e.g. 10–30s), the Canvas may frequently sleep between Home Assistant actions; auto-wake helps reliability.",
+                    "ble_auto_wake": "If enabled, the integration will try to wake the device via BLE (using the Bluetooth MAC address) before sending HTTP API commands. Requires Home Assistant Bluetooth and a connectable device (e.g. via BLE proxy). Tip: if you set the device's Max Idle Time very low (e.g. 10–30s), the Canvas may frequently sleep between Home Assistant actions; set max idle to 1 minute or longer so BLE wake is not that often needed and slow down actions.",
                     "orientation": "Select portrait or landscape based on how your frame is mounted",
                     "fill_mode": "Auto: cover if same orientation, contain if different. Cover: crop to fill. Contain: fit with background color",
                     "contain_color": "Background color used when image doesn't fill the screen (contain mode)"

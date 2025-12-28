@@ -22,6 +22,7 @@ from .const import (
     BLE_WAKE_PAYLOAD_OFF,
     BLE_WAKE_PULSE_GAP_SECONDS,
     POST_WAKE_REFRESH_TIMEOUT_SECONDS,
+    POST_WAKE_INITIAL_DELAY_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -235,9 +236,6 @@ class EinkRefreshButton(EinkBaseButton):
 class EinkBluetoothWakeButton(EinkBaseButton):
     """Button to wake the device via Bluetooth Low Energy (BLE)."""
 
-    # Wait time after BLE wake before attempting HTTP refresh (seconds)
-    _BLE_WAKE_WAIT_SECONDS = 2
-
     def __init__(
         self,
         hass: HomeAssistant,
@@ -429,8 +427,10 @@ class EinkBluetoothWakeButton(EinkBaseButton):
         Uses a shorter timeout than normal polling to quickly detect if device
         woke up without blocking too long if it didn't.
         """
-        # Wait briefly for device to fully wake up after BLE signal
-        await asyncio.sleep(self._BLE_WAKE_WAIT_SECONDS)
+        # Give the device time to bring up Wi‑Fi/HTTP after the BLE wake pulse.
+        # Without this, the first HTTP attempt often fails with connection errors
+        # or timeouts, which is expected but noisy in debug logs.
+        await asyncio.sleep(POST_WAKE_INITIAL_DELAY_SECONDS)
         
         try:
             runtime_data = self._config_entry.runtime_data

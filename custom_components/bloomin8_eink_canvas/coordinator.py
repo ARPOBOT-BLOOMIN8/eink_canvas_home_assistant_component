@@ -98,6 +98,13 @@ class EinkCanvasDeviceInfoCoordinator(DataUpdateCoordinator[dict[str, Any] | Non
 
     def async_set_updated_data(self, data: dict[str, Any] | None) -> None:
         """Update data and persist if non-None."""
+        # Avoid redundant updates: some action flows may push the same snapshot
+        # more than once within a short time window. Skipping identical pushes
+        # prevents duplicate "Manually updated … data" coordinator logs and
+        # unnecessary cache writes.
+        if data is not None and self.data is not None and data == self.data:
+            return
+
         if data is not None:
             # Update timestamp on fresh data.
             self._last_successful_update = dt_util.utcnow()

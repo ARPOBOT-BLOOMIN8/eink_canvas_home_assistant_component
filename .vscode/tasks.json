@@ -1,0 +1,15 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Deploy: copy integration to HA (/Volumes/config)",
+      "type": "shell",
+      "command": "bash",
+      "args": [
+        "${workspaceFolder}/scripts/deploy_to_ha.sh"
+      ],
+      "problemMatcher": [],
+      "group": "build"
+    }
+  ]
+}
