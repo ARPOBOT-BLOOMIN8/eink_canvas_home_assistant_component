@@ -59,7 +59,8 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - `media_source` browsing compatibility across Home Assistant versions (handle `generate_media_source_id()` signature differences).
 - Media Player: accept Home Assistant's `MediaType.IMAGE` ("image") in content-type filtering (in addition to MIME types like `image/png`).
 - Media Browser: thumbnails are now served via Home Assistant's proxy endpoint and cached in-memory (battery-friendly and works via remote access; avoids direct device fetches).
-- `media_source.py`: keep a safe deprecated stub to avoid load errors from Home Assistant API changes (media browsing is handled by the media player entity).
+- `media_source`: provide a proper Media Source provider for Canvas galleries (devices → galleries → images), instead of a non-browsable stub.
+- Media Browser: when browsing "Home Assistant Media" from the Canvas media player, provider browsing is filtered to images where supported.
 - Image upload robustness: use proper query `params` instead of manually building query strings (avoids HTTP/client parsing issues such as duplicate `Content-Length`).
 - Work around device firmware returning invalid HTTP response headers (e.g., duplicate `Content-Length`) by falling back to a lenient raw-socket upload for `/upload`.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.

@@ -776,12 +776,20 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 # (local media, camera sources, streamers, TTS, ...). Individual
                 # providers may still error if not configured, which is handled in
                 # the exception path below.
+                # Don't apply the filter at the root provider list — some
+                # providers validate config eagerly and would emit errors before
+                # the user even picks one.
                 return await media_source.async_browse_media(
                     self.hass,
                     None,
-                    content_filter=_image_filter,
                 )
             else:
+                # If possible, keep browsing focused on images to avoid listing
+                # irrelevant audio/video items for an e-ink photo frame.
+                # NOTE: We intentionally do *not* apply the filter at the root
+                # provider list (media_content_id=None), because some providers may
+                # validate config eagerly and emit errors even before the user selects
+                # a provider.
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
