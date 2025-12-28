@@ -757,6 +757,12 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
 
     async def async_browse_media(self, media_content_type: str | None = None, media_content_id: str | None = None) -> BrowseMedia:
         """Browse media - show device galleries and local media."""
+        # Accept both "image/*" mime types and the bare "image" MediaType constant
+        # — see PR #13 for why both are needed.
+        def _image_filter(item) -> bool:
+            mct = item.media_content_type
+            return bool(mct) and (mct.startswith("image/") or mct == "image")
+
         try:
             if media_content_id is None:
                 return await self._browse_root()
@@ -766,41 +772,14 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 gallery_name = media_content_id[8:]
                 return await self._browse_gallery_images(gallery_name)
             elif media_content_id == "local_media":
-                # Browse Home Assistant's configured local media.
-                # Passing None is not supported consistently across HA versions and
-                # can raise "Media directory does not exist".
-                from homeassistant.components.media_source import local_source
-                from homeassistant.components import media_source as ha_media_source
-
-                # Accept both "image/*" mime types and the bare "image" MediaType
-                # constant — see PR #13 for why both are needed.
-                def _image_filter(item) -> bool:
-                    mct = item.media_content_type
-                    return bool(mct) and (mct.startswith("image/") or mct == "image")
-
-                if hasattr(local_source, "async_browse_media"):
-                    return await local_source.async_browse_media(
-                        self.hass,
-                        "",
-                        content_filter=_image_filter,
-                    )
-
-                if hasattr(ha_media_source, "generate_media_source_id"):
-                    # HA API signature differs across versions:
-                    # - older: generate_media_source_id(domain)
-                    # - newer: generate_media_source_id(domain, identifier)
-                    try:
-                        local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN, "")
-                    except TypeError:
-                        local_root = ha_media_source.generate_media_source_id(local_source.DOMAIN)
-                    return await ha_media_source.async_browse_media(
-                        self.hass,
-                        local_root,
-                        content_filter=_image_filter,
-                    )
-
-                raise ValueError(
-                    "Browsing local media is not available in this Home Assistant version."
+                # Show the *media source root* so the user can browse all providers
+                # (local media, camera sources, streamers, TTS, ...). Individual
+                # providers may still error if not configured, which is handled in
+                # the exception path below.
+                return await media_source.async_browse_media(
+                    self.hass,
+                    None,
+                    content_filter=_image_filter,
                 )
             else:
                 return await media_source.async_browse_media(
@@ -842,7 +821,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 thumbnail=None,
             ),
             BrowseMedia(
-                title="Local Media",
+                title="Home Assistant Media",
                 media_class=MediaClass.DIRECTORY,
                 media_content_type="directory",
                 media_content_id="local_media",
