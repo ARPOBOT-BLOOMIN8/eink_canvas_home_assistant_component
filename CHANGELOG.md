@@ -28,6 +28,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 	- `get_playlist` (fetch a playlist via `/playlist?name=...`)
 - BLE device selection dropdown in the config flow (uses Home Assistant Bluetooth discoveries).
 - Bluetooth discovery flow support (`async_step_bluetooth`) to prefill the BLE address when the device is discovered.
+- Discovery UX: show the discovered Bluetooth MAC address in Home Assistant's "Discovered" device list.
 - Optional Bluetooth wake button (BLE) when a Bluetooth MAC address is configured (Sourced from https://github.com/mistrsoft/bloomin8_bt_wake)
 - Automatic device info refresh after BLE wake button press (with short 5s timeout).
 - Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
@@ -69,6 +70,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - BLE wake reliability: avoid potentially "sticky" BLE proxy connections by timing out response-required GATT writes and falling back to writes without response; add a disconnect timeout so the connection is released promptly.
 - BLE wake reliability: send the wake signal as a short pulse (0x01 then 0x00), matching observed behavior. https://github.com/mistrsoft/bloomin8_bt_wake/issues/1#issuecomment-3694216426
 - BLE wake button: post-wake refresh now retries and uses a wake-enabled `/deviceInfo` request to avoid being skipped while Wi‑Fi is still coming up.
+- BLE wake UX: reduce noisy debug stack traces on the first post-wake `/deviceInfo` probe (common while Wi‑Fi/HTTP is still coming up), and avoid duplicate coordinator "Manually updated" logs by skipping identical snapshot pushes.
 - Device Info sensor: after manual refresh / BLE wake updates pushed into the coordinator, the coordinator is now correctly marked as successful so "Asleep (assumed)" does not linger from a previous failed refresh.
 
 ## [1.6.0] 

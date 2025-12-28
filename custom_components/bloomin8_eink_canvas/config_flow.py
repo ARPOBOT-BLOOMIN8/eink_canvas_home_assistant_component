@@ -304,8 +304,19 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if not _is_probably_bloomin8(discovery_info):
             return self.async_abort(reason="not_supported")
 
-        await self.async_set_unique_id(discovery_info.address)
+        # Avoid spawning multiple discovery flows for repeated advertisements.
+        try:
+            await self.async_set_unique_id(discovery_info.address, raise_on_progress=True)
+        except TypeError:
+            # Older Home Assistant versions may not support raise_on_progress.
+            await self.async_set_unique_id(discovery_info.address)
         self._abort_if_unique_id_configured()
+
+        # Used by Home Assistant to render the "Discovered" card label.
+        self.context["title_placeholders"] = {
+            "name": (discovery_info.name or "BLOOMIN8 E-Ink Canvas").strip(),
+            "address": discovery_info.address,
+        }
 
         # We still need the IP-based setup fields, but we can prefill the MAC.
         self._prefill_mac = discovery_info.address
