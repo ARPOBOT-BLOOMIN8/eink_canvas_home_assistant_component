@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -15,7 +16,9 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -192,7 +195,7 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
             }
 
 
-class EinkLastUpdateSensor(EinkBaseCoordinatorSensor):
+class EinkLastUpdateSensor(EinkBaseCoordinatorSensor, RestoreEntity):
     """Sensor showing the datetime of the last successful device info update."""
 
     def __init__(self, coordinator, hass: HomeAssistant, config_entry: ConfigEntry, host: str, device_name: str) -> None:
@@ -204,15 +207,41 @@ class EinkLastUpdateSensor(EinkBaseCoordinatorSensor):
         self._attr_icon = "mdi:clock-check-outline"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
+        # Fallback restored value (used if coordinator has no timestamp yet).
+        self._restored_last_update: datetime | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last known timestamp across Home Assistant restarts."""
+        await super().async_added_to_hass()
+
+        # Coordinator should restore from disk, but be defensive: if it's missing
+        # (e.g., first run, storage wiped, or race), restore from HA state.
+        if self.coordinator.last_successful_update is not None:
+            return
+
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state in (None, "", "unknown", "unavailable"):
+            return
+
+        restored = dt_util.parse_datetime(last_state.state)
+        if restored is None:
+            return
+
+        # Ensure timezone-awareness (HA expects aware datetimes for TIMESTAMP).
+        self._restored_last_update = dt_util.as_utc(restored)
+        self.async_write_ha_state()
+
     @property
     def available(self) -> bool:
         """Return True if we have a timestamp (even from cache)."""
-        return self.coordinator.last_successful_update is not None
+        return (self.coordinator.last_successful_update is not None) or (
+            self._restored_last_update is not None
+        )
 
     @property
     def native_value(self):
         """Return the datetime of the last successful update."""
-        return self.coordinator.last_successful_update
+        return self.coordinator.last_successful_update or self._restored_last_update
 
 
 class EinkBatterySensor(EinkBaseCoordinatorSensor):

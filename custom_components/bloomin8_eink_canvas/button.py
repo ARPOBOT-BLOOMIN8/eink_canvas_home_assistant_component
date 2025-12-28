@@ -18,7 +18,9 @@ from .const import (
     DEFAULT_NAME,
     CONF_MAC_ADDRESS,
     BLE_WAKE_CHAR_UUIDS,
-    BLE_WAKE_PAYLOAD,
+    BLE_WAKE_PAYLOAD_ON,
+    BLE_WAKE_PAYLOAD_OFF,
+    BLE_WAKE_PULSE_GAP_SECONDS,
     POST_WAKE_REFRESH_TIMEOUT_SECONDS,
 )
 
@@ -286,21 +288,58 @@ class EinkBluetoothWakeButton(EinkBaseButton):
 
         try:
             if establish_connection is not None and BleakClientWithServiceCache is not None:
-                client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    device,
-                    name=getattr(device, "name", None) or self._mac,
-                    max_attempts=4,
+                client = await asyncio.wait_for(
+                    establish_connection(
+                        BleakClientWithServiceCache,
+                        device,
+                        name=getattr(device, "name", None) or self._mac,
+                        max_attempts=4,
+                    ),
+                    timeout=20,
                 )
                 try:
                     last_err: Exception | None = None
                     for char_uuid in BLE_WAKE_CHAR_UUIDS:
                         try:
-                            await client.write_gatt_char(
-                                char_uuid,
-                                BLE_WAKE_PAYLOAD,
-                                response=True,
-                            )
+                            try:
+                                await asyncio.wait_for(
+                                    client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD_ON,
+                                        response=True,
+                                    ),
+                                    timeout=2,
+                                )
+                            except asyncio.TimeoutError:
+                                _LOGGER.debug(
+                                    "BLE wake write timed out waiting for response; retrying without response (mac=%s, char=%s)",
+                                    self._mac,
+                                    char_uuid,
+                                )
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_ON,
+                                    response=False,
+                                )
+
+                            # Release pulse (0x00) best-effort.
+                            try:
+                                if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                    await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_OFF,
+                                    response=False,
+                                )
+                            except Exception as err:  # noqa: BLE001 - best-effort
+                                _LOGGER.debug(
+                                    "BLE wake release write failed (mac=%s, char=%s, err=%s: %s)",
+                                    self._mac,
+                                    char_uuid,
+                                    type(err).__name__,
+                                    err,
+                                )
+
                             _LOGGER.info("BLE wake signal sent successfully")
                             last_err = None
                             break
@@ -309,7 +348,13 @@ class EinkBluetoothWakeButton(EinkBaseButton):
                     if last_err is not None:
                         raise last_err
                 finally:
-                    await client.disconnect()
+                    try:
+                        await asyncio.wait_for(client.disconnect(), timeout=5)
+                    except asyncio.TimeoutError:
+                        _LOGGER.debug(
+                            "BLE wake disconnect timed out (mac=%s)",
+                            self._mac,
+                        )
             else:
                 # Fallback for environments without bleak-retry-connector.
                 async with BleakClient(device) as client:
@@ -320,11 +365,44 @@ class EinkBluetoothWakeButton(EinkBaseButton):
                     last_err: Exception | None = None
                     for char_uuid in BLE_WAKE_CHAR_UUIDS:
                         try:
-                            await client.write_gatt_char(
-                                char_uuid,
-                                BLE_WAKE_PAYLOAD,
-                                response=True,
-                            )
+                            try:
+                                await asyncio.wait_for(
+                                    client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD_ON,
+                                        response=True,
+                                    ),
+                                    timeout=2,
+                                )
+                            except asyncio.TimeoutError:
+                                _LOGGER.debug(
+                                    "BLE wake write timed out waiting for response; retrying without response (fallback BleakClient) (mac=%s, char=%s)",
+                                    self._mac,
+                                    char_uuid,
+                                )
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_ON,
+                                    response=False,
+                                )
+
+                            try:
+                                if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                    await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_OFF,
+                                    response=False,
+                                )
+                            except Exception as err:  # noqa: BLE001 - best-effort
+                                _LOGGER.debug(
+                                    "BLE wake release write failed (fallback BleakClient) (mac=%s, char=%s, err=%s: %s)",
+                                    self._mac,
+                                    char_uuid,
+                                    type(err).__name__,
+                                    err,
+                                )
+
                             _LOGGER.info("BLE wake signal sent successfully")
                             last_err = None
                             break

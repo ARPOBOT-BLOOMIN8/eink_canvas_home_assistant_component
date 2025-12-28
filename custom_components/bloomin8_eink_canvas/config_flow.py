@@ -38,7 +38,9 @@ from .const import (
     BLE_MANUFACTURER_ID,
     BLE_SERVICE_UUIDS,
     BLE_WAKE_CHAR_UUIDS,
-    BLE_WAKE_PAYLOAD,
+    BLE_WAKE_PAYLOAD_ON,
+    BLE_WAKE_PAYLOAD_OFF,
+    BLE_WAKE_PULSE_GAP_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -151,7 +153,40 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
                 last_err: Exception | None = None
                 for char_uuid in BLE_WAKE_CHAR_UUIDS:
                     try:
-                        await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD, response=True)
+                        try:
+                            await asyncio.wait_for(
+                                client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_ON,
+                                    response=True,
+                                ),
+                                timeout=2,
+                            )
+                        except asyncio.TimeoutError:
+                            _LOGGER.debug(
+                                "BLE wake write timed out waiting for response; retrying without response (mac=%s, char=%s)",
+                                mac_address,
+                                char_uuid,
+                            )
+                            await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD_ON, response=False)
+
+                        try:
+                            if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                            await client.write_gatt_char(
+                                char_uuid,
+                                BLE_WAKE_PAYLOAD_OFF,
+                                response=False,
+                            )
+                        except Exception as err:  # noqa: BLE001 - best-effort
+                            _LOGGER.debug(
+                                "BLE wake release write failed (mac=%s, char=%s, err=%s: %s)",
+                                mac_address,
+                                char_uuid,
+                                type(err).__name__,
+                                err,
+                            )
+
                         _LOGGER.info("BLE wake signal sent to %s", mac_address)
                         last_err = None
                         break
@@ -160,7 +195,10 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
                 if last_err is not None:
                     raise last_err
             finally:
-                await client.disconnect()
+                try:
+                    await asyncio.wait_for(client.disconnect(), timeout=5)
+                except asyncio.TimeoutError:
+                    _LOGGER.debug("BLE wake disconnect timed out (mac=%s)", mac_address)
         except ImportError:
             # Import bleak lazily to avoid hard dependency during import/tests
             try:
@@ -178,7 +216,40 @@ async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> Non
                     last_err: Exception | None = None
                     for char_uuid in BLE_WAKE_CHAR_UUIDS:
                         try:
-                            await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD, response=True)
+                            try:
+                                await asyncio.wait_for(
+                                    client.write_gatt_char(
+                                        char_uuid,
+                                        BLE_WAKE_PAYLOAD_ON,
+                                        response=True,
+                                    ),
+                                    timeout=2,
+                                )
+                            except asyncio.TimeoutError:
+                                _LOGGER.debug(
+                                    "BLE wake write timed out waiting for response; retrying without response (fallback BleakClient) (mac=%s, char=%s)",
+                                    mac_address,
+                                    char_uuid,
+                                )
+                                await client.write_gatt_char(char_uuid, BLE_WAKE_PAYLOAD_ON, response=False)
+
+                            try:
+                                if BLE_WAKE_PULSE_GAP_SECONDS > 0:
+                                    await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
+                                await client.write_gatt_char(
+                                    char_uuid,
+                                    BLE_WAKE_PAYLOAD_OFF,
+                                    response=False,
+                                )
+                            except Exception as err:  # noqa: BLE001 - best-effort
+                                _LOGGER.debug(
+                                    "BLE wake release write failed (fallback BleakClient) (mac=%s, char=%s, err=%s: %s)",
+                                    mac_address,
+                                    char_uuid,
+                                    type(err).__name__,
+                                    err,
+                                )
+
                             _LOGGER.info("BLE wake signal sent to %s", mac_address)
                             last_err = None
                             break
