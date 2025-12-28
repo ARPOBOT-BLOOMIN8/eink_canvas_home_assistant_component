@@ -773,21 +773,18 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 return await media_source.async_browse_media(
                     self.hass,
                     None,
-                    content_filter=lambda item: item.media_content_type
-                    and (
-                        item.media_content_type.startswith("image/")
-                        or item.media_content_type == "image"
-                    ),
                 )
             else:
+                # If possible, keep browsing focused on images to avoid listing
+                # irrelevant audio/video items for an e-ink photo frame.
+                # NOTE: We intentionally do *not* apply the filter at the root
+                # provider list (media_content_id=None), because some providers may
+                # validate config eagerly and emit errors even before the user selects
+                # a provider.
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
-                    content_filter=lambda item: item.media_content_type
-                    and (
-                        item.media_content_type.startswith("image/")
-                        or item.media_content_type == "image"
-                    ),
+                    content_filter={MediaType.IMAGE},
                 )
         except Exception as err:
             # This often happens when Home Assistant has no media directory configured.
