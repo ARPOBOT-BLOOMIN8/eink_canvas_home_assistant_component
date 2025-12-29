@@ -15,7 +15,7 @@
     "codeowners": ["@ARPOBOT-BLOOMIN8"],
     "config_flow": true,
     "dependencies": [],
-    "documentation": "https://bloomin8.readme.io",
+    "documentation": "https://github.com/ARPOBOT-BLOOMIN8/eink_canvas_home_assistant_component",
     "homekit": {},
     "integration_type": "device",
     "iot_class": "local_polling",

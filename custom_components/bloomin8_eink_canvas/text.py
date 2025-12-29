@@ -9,9 +9,10 @@ from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN, DEFAULT_NAME, SIGNAL_DEVICE_INFO_UPDATED
+from .runtime_updates import connect_device_info_updated
+
+from .const import DOMAIN, DEFAULT_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,11 +57,10 @@ class EinkDeviceNameText(TextEntity):
         """Register callbacks when entity is added."""
         await super().async_added_to_hass()
 
-        signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{self._config_entry.entry_id}"
-        self._unsub_dispatcher = async_dispatcher_connect(
+        self._unsub_dispatcher = connect_device_info_updated(
             self.hass,
-            signal,
-            self._handle_runtime_data_updated,
+            entry_id=self._config_entry.entry_id,
+            callback=self._handle_runtime_data_updated,
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -113,21 +113,12 @@ class EinkDeviceNameText(TextEntity):
 
     async def async_set_value(self, value: str) -> None:
         """Set the device name."""
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update device name: device info not available")
-            return
-
-        # Call update_settings service with new device name
+        # Call update_settings service with new device name (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
                 "name": value,
-                "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": device_info.get("max_idle", 300),
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,
         ) 

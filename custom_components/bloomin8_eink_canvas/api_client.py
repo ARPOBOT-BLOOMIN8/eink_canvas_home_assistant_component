@@ -16,10 +16,10 @@ from urllib.parse import urlencode
 
 import aiohttp
 import async_timeout
-
-from homeassistant.components import bluetooth
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+
+from .ble_wake import async_ble_wake
 
 from .const import (
     ENDPOINT_SHOW,
@@ -38,10 +38,6 @@ from .const import (
     ENDPOINT_PLAYLIST,
     ENDPOINT_PLAYLIST_LIST,
     ENDPOINT_STATUS,
-    BLE_WAKE_CHAR_UUIDS,
-    BLE_WAKE_PAYLOAD_ON,
-    BLE_WAKE_PAYLOAD_OFF,
-    BLE_WAKE_PULSE_GAP_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -332,289 +328,64 @@ class EinkCanvasApiClient:
                     return
             self._last_ble_wake_attempt = now
 
-            ble_device = bluetooth.async_ble_device_from_address(
-                self._hass,
-                self._mac_address,
-                connectable=True,
-            )
-            if not ble_device:
-                _LOGGER.debug(
-                    "%s skipped: device %s not found in HA Bluetooth cache or not connectable",
-                    log_prefix,
-                    self._mac_address,
-                )
-                return
-
-            try:
-                from bleak import BleakClient  # type: ignore
-            except ImportError:
-                _LOGGER.warning(
-                    "%s enabled but 'bleak' is not available; skipping BLE wake",
-                    log_prefix,
-                )
-                return
-
             if force_ble:
                 _LOGGER.debug("Waking device via BLE (forced): %s", self._mac_address)
             else:
                 _LOGGER.debug("Auto-waking device via BLE: %s", self._mac_address)
-            attempted = False
+
             t0 = time.monotonic()
+            result = await async_ble_wake(
+                self._hass,
+                self._mac_address,
+                log_prefix=log_prefix,
+                connect_timeout=20,
+                max_attempts=4,
+                write_timeout=2,
+                disconnect_timeout=5,
+            )
 
-            # One-line summary metrics for debugging "sticky" BLE connections.
-            ble_connect_dt: float | None = None
-            ble_write_dt: float | None = None
-            ble_release_write_dt: float | None = None
-            ble_disconnect_dt: float | None = None
-            ble_disconnect_timed_out = False
-            ble_used_char: str | None = None
-            ble_used_write_response: bool | None = None
-            ble_release_ok: bool | None = None
-            ble_mode = "bleak_retry_connector"
-            try:
-                attempted = True
+            # If we couldn't even attempt a BLE wake (device not in cache, no bleak,
+            # not connectable), keep the previous behavior: don't block waiting for
+            # HTTP to appear.
+            if not result.attempted:
+                _LOGGER.debug(
+                    "%s skipped: %s",
+                    log_prefix,
+                    result.error or "BLE wake not possible",
+                )
+                return
 
-                # Prefer HA-recommended connector when available for more reliable connects.
-                try:
-                    from bleak_retry_connector import (  # type: ignore
-                        BleakClientWithServiceCache,
-                        establish_connection,
-                    )
+            if result.attempted and not result.ok:
+                _LOGGER.warning(
+                    "%s failed for %s: %s",
+                    log_prefix,
+                    self._mac_address,
+                    result.error or "unknown error",
+                )
 
-                    t_connect_start = time.monotonic()
-                    client = await asyncio.wait_for(
-                        establish_connection(
-                            BleakClientWithServiceCache,
-                            ble_device,
-                            name=getattr(ble_device, "name", None) or self._mac_address,
-                            max_attempts=4,
-                        ),
-                        timeout=20,
-                    )
-                    ble_connect_dt = time.monotonic() - t_connect_start
-                    _LOGGER.debug(
-                        "%s connected (host=%s, mac=%s, dt=%.2fs)",
-                        log_prefix,
-                        self._host,
-                        self._mac_address,
-                        ble_connect_dt,
-                    )
-                    try:
-                        last_err: Exception | None = None
-                        for char_uuid in BLE_WAKE_CHAR_UUIDS:
-                            try:
-                                t_write_start = time.monotonic()
-                                try:
-                                    # Some BLE proxy stacks can end up holding the connection
-                                    # longer than expected when waiting for a write response.
-                                    # Prefer a short timeout, then fall back to a write without
-                                    # response to reduce the chance of "sticky" connections.
-                                    await asyncio.wait_for(
-                                        client.write_gatt_char(
-                                            char_uuid,
-                                            BLE_WAKE_PAYLOAD_ON,
-                                            response=True,
-                                        ),
-                                        timeout=2,
-                                    )
-                                    ble_used_write_response = True
-                                except asyncio.TimeoutError:
-                                    _LOGGER.debug(
-                                        "BLE wake write timed out waiting for response; retrying without response (host=%s, mac=%s, char=%s)",
-                                        self._host,
-                                        self._mac_address,
-                                        char_uuid,
-                                    )
-                                    await client.write_gatt_char(
-                                        char_uuid,
-                                        BLE_WAKE_PAYLOAD_ON,
-                                        response=False,
-                                    )
-                                    ble_used_write_response = False
-                                ble_write_dt = time.monotonic() - t_write_start
-
-                                # Release pulse: some firmwares require a second write 0x00.
-                                ble_release_ok = False
-                                try:
-                                    if BLE_WAKE_PULSE_GAP_SECONDS > 0:
-                                        await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
-                                    t_release_start = time.monotonic()
-                                    await client.write_gatt_char(
-                                        char_uuid,
-                                        BLE_WAKE_PAYLOAD_OFF,
-                                        response=False,
-                                    )
-                                    ble_release_write_dt = time.monotonic() - t_release_start
-                                    ble_release_ok = True
-                                except Exception as err:  # noqa: BLE001 - best-effort
-                                    _LOGGER.debug(
-                                        "BLE wake release write failed (host=%s, mac=%s, char=%s, err=%s: %s)",
-                                        self._host,
-                                        self._mac_address,
-                                        char_uuid,
-                                        type(err).__name__,
-                                        err,
-                                    )
-
-                                ble_used_char = char_uuid
-                                _LOGGER.debug(
-                                    "%s signal sent (host=%s, mac=%s, char=%s, dt=%.2fs)",
-                                    log_prefix,
-                                    self._host,
-                                    self._mac_address,
-                                    char_uuid,
-                                    ble_write_dt,
-                                )
-                                last_err = None
-                                break
-                            except Exception as err:  # noqa: BLE001 - best-effort fallback chain
-                                last_err = err
-                        if last_err is not None:
-                            raise last_err
-                    finally:
-                        t_disconnect_start = time.monotonic()
-                        try:
-                            await asyncio.wait_for(client.disconnect(), timeout=5)
-                        except asyncio.TimeoutError:
-                            ble_disconnect_timed_out = True
-                            _LOGGER.debug(
-                                "%s disconnect timed out (host=%s, mac=%s)",
-                                log_prefix,
-                                self._host,
-                                self._mac_address,
-                            )
-                        ble_disconnect_dt = time.monotonic() - t_disconnect_start
-                        _LOGGER.debug(
-                            "%s disconnected (host=%s, mac=%s, dt=%.2fs, total=%.2fs)",
-                            log_prefix,
-                            self._host,
-                            self._mac_address,
-                            ble_disconnect_dt,
-                            time.monotonic() - t0,
-                        )
-                except ImportError:
-                    # Fallback to plain BleakClient (may log a warning in newer HA).
-                    ble_mode = "bleak"
-                    t_connect_start = time.monotonic()
-                    async with BleakClient(ble_device) as client:
-                        ble_connect_dt = time.monotonic() - t_connect_start
-                        _LOGGER.debug(
-                            "%s connected (fallback BleakClient) (host=%s, mac=%s, dt=%.2fs)",
-                            log_prefix,
-                            self._host,
-                            self._mac_address,
-                            ble_connect_dt,
-                        )
-                        if not client.is_connected:
-                            _LOGGER.warning(
-                                "%s: failed to connect to %s",
-                                log_prefix,
-                                self._mac_address,
-                            )
-                        else:
-                            last_err: Exception | None = None
-                            for char_uuid in BLE_WAKE_CHAR_UUIDS:
-                                try:
-                                    t_write_start = time.monotonic()
-                                    try:
-                                        await asyncio.wait_for(
-                                            client.write_gatt_char(
-                                                char_uuid,
-                                                BLE_WAKE_PAYLOAD_ON,
-                                                response=True,
-                                            ),
-                                            timeout=2,
-                                        )
-                                        ble_used_write_response = True
-                                    except asyncio.TimeoutError:
-                                        _LOGGER.debug(
-                                            "BLE wake write timed out waiting for response; retrying without response (fallback BleakClient) (host=%s, mac=%s, char=%s)",
-                                            self._host,
-                                            self._mac_address,
-                                            char_uuid,
-                                        )
-                                        await client.write_gatt_char(
-                                            char_uuid,
-                                            BLE_WAKE_PAYLOAD_ON,
-                                            response=False,
-                                        )
-                                        ble_used_write_response = False
-                                    ble_write_dt = time.monotonic() - t_write_start
-
-                                    ble_release_ok = False
-                                    try:
-                                        if BLE_WAKE_PULSE_GAP_SECONDS > 0:
-                                            await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
-                                        t_release_start = time.monotonic()
-                                        await client.write_gatt_char(
-                                            char_uuid,
-                                            BLE_WAKE_PAYLOAD_OFF,
-                                            response=False,
-                                        )
-                                        ble_release_write_dt = time.monotonic() - t_release_start
-                                        ble_release_ok = True
-                                    except Exception as err:  # noqa: BLE001 - best-effort
-                                        _LOGGER.debug(
-                                            "BLE wake release write failed (fallback BleakClient) (host=%s, mac=%s, char=%s, err=%s: %s)",
-                                            self._host,
-                                            self._mac_address,
-                                            char_uuid,
-                                            type(err).__name__,
-                                            err,
-                                        )
-
-                                    ble_used_char = char_uuid
-                                    _LOGGER.debug(
-                                        "%s signal sent (fallback BleakClient) (host=%s, mac=%s, char=%s, dt=%.2fs)",
-                                        log_prefix,
-                                        self._host,
-                                        self._mac_address,
-                                        char_uuid,
-                                        ble_write_dt,
-                                    )
-                                    last_err = None
-                                    break
-                                except Exception as err:  # noqa: BLE001 - best-effort fallback chain
-                                    last_err = err
-                            if last_err is not None:
-                                raise last_err
-                    _LOGGER.debug(
-                        "%s finished (fallback BleakClient) (host=%s, mac=%s, total=%.2fs)",
-                        log_prefix,
-                        self._host,
-                        self._mac_address,
-                        time.monotonic() - t0,
-                    )
-            except Exception as err:
-                _LOGGER.warning("%s failed for %s: %s", log_prefix, self._mac_address, err)
-            finally:
-                if attempted:
-                    # Historically we used a large fixed wait (default 10s) after BLE.
-                    # That made interactive calls feel slow and is redundant because we
-                    # also actively probe HTTP reachability below.
-                    # Keep a small settle delay to avoid an immediate probe while the
-                    # Wi-Fi stack is still coming up.
-                    if self._ble_wake_wait_seconds <= 0:
-                        settle = 0.0
-                    else:
-                        settle = min(float(self._ble_wake_wait_seconds), _BLE_POST_WAKE_SETTLE_SECONDS)
-                    if settle > 0:
-                        await asyncio.sleep(settle)
+            # Small settle delay to avoid probing HTTP while Wi‑Fi is still coming up.
+            if result.attempted:
+                if self._ble_wake_wait_seconds <= 0:
+                    settle = 0.0
+                else:
+                    settle = min(float(self._ble_wake_wait_seconds), _BLE_POST_WAKE_SETTLE_SECONDS)
+                if settle > 0:
+                    await asyncio.sleep(settle)
 
             _LOGGER.debug(
                 "%s summary (host=%s, mac=%s, mode=%s, connect_dt=%s, write_dt=%s, release_dt=%s, release_ok=%s, disconnect_dt=%s, disconnect_timeout=%s, char=%s, write_response=%s, total_ble_dt=%.2fs)",
                 log_prefix,
                 self._host,
                 self._mac_address,
-                ble_mode,
-                None if ble_connect_dt is None else f"{ble_connect_dt:.2f}s",
-                None if ble_write_dt is None else f"{ble_write_dt:.2f}s",
-                None if ble_release_write_dt is None else f"{ble_release_write_dt:.2f}s",
-                ble_release_ok,
-                None if ble_disconnect_dt is None else f"{ble_disconnect_dt:.2f}s",
-                ble_disconnect_timed_out,
-                ble_used_char,
-                ble_used_write_response,
+                result.mode,
+                None if result.connect_dt is None else f"{result.connect_dt:.2f}s",
+                None if result.write_dt is None else f"{result.write_dt:.2f}s",
+                None if result.release_dt is None else f"{result.release_dt:.2f}s",
+                result.release_ok,
+                None if result.disconnect_dt is None else f"{result.disconnect_dt:.2f}s",
+                result.disconnect_timed_out,
+                result.used_char,
+                result.used_write_response,
                 time.monotonic() - t0,
             )
 
@@ -707,7 +478,11 @@ class EinkCanvasApiClient:
             return None
 
     async def get_device_info(
-        self, *, wake: bool | None = None, timeout: int | None = None
+        self,
+        *,
+        wake: bool | None = None,
+        timeout: int | None = None,
+        log_errors: bool = True,
     ) -> dict[str, Any] | None:
         """Get device information from /deviceInfo endpoint.
 
@@ -743,16 +518,26 @@ class EinkCanvasApiClient:
 
                     if response.status != 200:
                         body = self._truncate(text_response)
-                        self._log_request_state_change(
-                            key,
-                            ok=False,
-                            fail_level=logging.ERROR,
-                            fail_message=(
-                                f"HTTP request failed: {key} ({url}) status={response.status} "
-                                f"content_type={response.content_type} body='{body}'"
-                            ),
-                            recover_message=f"Device HTTP endpoint recovered: {key} ({self._host})",
-                        )
+                        if log_errors:
+                            self._log_request_state_change(
+                                key,
+                                ok=False,
+                                fail_level=logging.ERROR,
+                                fail_message=(
+                                    f"HTTP request failed: {key} ({url}) status={response.status} "
+                                    f"content_type={response.content_type} body='{body}'"
+                                ),
+                                recover_message=f"Device HTTP endpoint recovered: {key} ({self._host})",
+                            )
+                        else:
+                            _LOGGER.debug(
+                                "HTTP request failed (suppressed): %s (%s) status=%s content_type=%s body='%s'",
+                                key,
+                                url,
+                                response.status,
+                                response.content_type,
+                                body,
+                            )
                         return None
 
                     # 200 OK
@@ -802,15 +587,16 @@ class EinkCanvasApiClient:
                     )
                     return data
         except Exception as err:
-            self._log_request_state_change(
-                key,
-                ok=False,
-                fail_level=logging.ERROR,
-                fail_message=(
-                    f"HTTP request error: {key} ({url}) err={type(err).__name__}: {err}"
-                ),
-                recover_message=f"Device HTTP endpoint recovered: {key} ({self._host})",
-            )
+            if log_errors:
+                self._log_request_state_change(
+                    key,
+                    ok=False,
+                    fail_level=logging.ERROR,
+                    fail_message=(
+                        f"HTTP request error: {key} ({url}) err={type(err).__name__}: {err}"
+                    ),
+                    recover_message=f"Device HTTP endpoint recovered: {key} ({self._host})",
+                )
             # Post-wake, the device frequently isn't HTTP-ready yet. A connection
             # error/timeout on the first probe is expected; avoid noisy stack traces
             # for these common cases while still keeping a breadcrumb for debugging.
@@ -821,7 +607,14 @@ class EinkCanvasApiClient:
                     err,
                 )
             else:
-                _LOGGER.debug("Error getting device info (details)", exc_info=err)
+                if log_errors:
+                    _LOGGER.debug("Error getting device info (details)", exc_info=err)
+                else:
+                    _LOGGER.debug(
+                        "Error getting device info (suppressed): %s: %s",
+                        type(err).__name__,
+                        err,
+                    )
             return None
 
     async def show_next(self) -> bool:

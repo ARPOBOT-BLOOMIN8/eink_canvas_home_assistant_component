@@ -53,7 +53,14 @@ The manual way (if you like living on the edge): -->
 
 1.  Go to `Settings` \> `Devices & Services`.
 2.  Click `Add Integration` and search for `BLOOMIN8`.
-3.  Pop in the IP address you noted down earlier.
+3.  Choose one of the setup paths:
+
+    - **Discover (mDNS)** (recommended): Home Assistant will scan your LAN for devices advertising `_http._tcp` and then **verify candidates via `GET /deviceInfo`**.
+      This is intentionally strict because `_http._tcp` is very generic.
+    - **Manual**: Enter the Canvas IP address you noted down earlier.
+
+    Tip: If the Canvas shows up in Home Assistant as a **Bluetooth discovered** device, you can click **Configure** from the discovered card. The flow will prefill the Bluetooth MAC address for BLE wake.
+
 4.  Give it a name. Something fun, like `Living Room Portal` or `The Void`.
 
 -----
