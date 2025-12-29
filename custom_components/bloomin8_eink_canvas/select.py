@@ -9,9 +9,10 @@ from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
-from .const import DOMAIN, DEFAULT_NAME, SIGNAL_DEVICE_INFO_UPDATED
+from .runtime_updates import connect_device_info_updated
+
+from .const import DOMAIN, DEFAULT_NAME
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,11 +88,10 @@ class EinkBaseSelect(SelectEntity):
         """Register callbacks when entity is added."""
         await super().async_added_to_hass()
 
-        signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{self._config_entry.entry_id}"
-        self._unsub_dispatcher = async_dispatcher_connect(
+        self._unsub_dispatcher = connect_device_info_updated(
             self.hass,
-            signal,
-            self._handle_runtime_data_updated,
+            entry_id=self._config_entry.entry_id,
+            callback=self._handle_runtime_data_updated,
         )
 
     async def async_will_remove_from_hass(self) -> None:
@@ -169,21 +169,12 @@ class EinkSleepDurationSelect(EinkBaseSelect):
             _LOGGER.error("Invalid sleep duration option: %s", option)
             return
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update sleep duration: device info not available")
-            return
-
-        # Call update_settings service with new sleep duration
+        # Call update_settings service with new sleep duration (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
                 "sleep_duration": SLEEP_DURATION_OPTIONS[option],
-                "max_idle": device_info.get("max_idle", 300),
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,
         )
@@ -263,21 +254,12 @@ class EinkMaxIdleSelect(EinkBaseSelect):
                 new_max_idle,
             )
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update max idle time: device info not available")
-            return
-
-        # Call update_settings service with new max idle time
+        # Call update_settings service with new max idle time (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
-                "sleep_duration": device_info.get("sleep_duration", 86400),
                 "max_idle": new_max_idle,
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,
         )
@@ -315,20 +297,11 @@ class EinkWakeSensitivitySelect(EinkBaseSelect):
             _LOGGER.error("Invalid wake sensitivity option: %s", option)
             return
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update wake sensitivity: device info not available")
-            return
-
-        # Call update_settings service with new wake sensitivity
+        # Call update_settings service with new wake sensitivity (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
-                "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": device_info.get("max_idle", 300),
                 "idx_wake_sens": WAKE_SENSITIVITY_OPTIONS[option],
             },
             blocking=True,

@@ -6,7 +6,6 @@ import logging
 
 from homeassistant.components.button import ButtonEntity
 from homeassistant.components import bluetooth
-from homeassistant.components.bluetooth import async_ble_device_from_address
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
 from homeassistant.core import HomeAssistant
@@ -17,13 +16,10 @@ from .const import (
     DOMAIN,
     DEFAULT_NAME,
     CONF_MAC_ADDRESS,
-    BLE_WAKE_CHAR_UUIDS,
-    BLE_WAKE_PAYLOAD_ON,
-    BLE_WAKE_PAYLOAD_OFF,
-    BLE_WAKE_PULSE_GAP_SECONDS,
     POST_WAKE_REFRESH_TIMEOUT_SECONDS,
     POST_WAKE_INITIAL_DELAY_SECONDS,
 )
+from .ble_wake import async_ble_wake
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -253,167 +249,15 @@ class EinkBluetoothWakeButton(EinkBaseButton):
 
     async def async_press(self) -> None:
         """Handle the button press."""
-        # Resolve BLEDevice from HA Bluetooth integration cache
-        device = async_ble_device_from_address(self.hass, self._mac, connectable=True)
-        if not device:
+        result = await async_ble_wake(self.hass, self._mac, log_prefix="Wake (Bluetooth)")
+        if result.ok:
+            _LOGGER.info("BLE wake signal sent successfully")
+        else:
+            # Best-effort: still attempt a refresh below.
             _LOGGER.warning(
-                "Bluetooth device %s not found in HA Bluetooth cache or not connectable",
+                "BLE wake failed for %s (%s)",
                 self._mac,
-            )
-            return
-
-        _LOGGER.info("Sending BLE wake signal to %s", self._mac)
-
-        # Prefer HA-recommended connector for reliable connects and to avoid warnings
-        # from habluetooth wrappers.
-        try:
-            from bleak_retry_connector import (  # type: ignore
-                BleakClientWithServiceCache,
-                establish_connection,
-            )
-        except ImportError:
-            BleakClientWithServiceCache = None  # type: ignore[assignment]
-            establish_connection = None  # type: ignore[assignment]
-
-        # Import bleak lazily to avoid hard dependency during import/tests
-        try:
-            from bleak import BleakClient  # type: ignore
-        except ImportError:
-            _LOGGER.error(
-                "Cannot send BLE wake signal because 'bleak' is not available in this environment"
-            )
-            return
-
-        try:
-            if establish_connection is not None and BleakClientWithServiceCache is not None:
-                client = await asyncio.wait_for(
-                    establish_connection(
-                        BleakClientWithServiceCache,
-                        device,
-                        name=getattr(device, "name", None) or self._mac,
-                        max_attempts=4,
-                    ),
-                    timeout=20,
-                )
-                try:
-                    last_err: Exception | None = None
-                    for char_uuid in BLE_WAKE_CHAR_UUIDS:
-                        try:
-                            try:
-                                await asyncio.wait_for(
-                                    client.write_gatt_char(
-                                        char_uuid,
-                                        BLE_WAKE_PAYLOAD_ON,
-                                        response=True,
-                                    ),
-                                    timeout=2,
-                                )
-                            except asyncio.TimeoutError:
-                                _LOGGER.debug(
-                                    "BLE wake write timed out waiting for response; retrying without response (mac=%s, char=%s)",
-                                    self._mac,
-                                    char_uuid,
-                                )
-                                await client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD_ON,
-                                    response=False,
-                                )
-
-                            # Release pulse (0x00) best-effort.
-                            try:
-                                if BLE_WAKE_PULSE_GAP_SECONDS > 0:
-                                    await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
-                                await client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD_OFF,
-                                    response=False,
-                                )
-                            except Exception as err:  # noqa: BLE001 - best-effort
-                                _LOGGER.debug(
-                                    "BLE wake release write failed (mac=%s, char=%s, err=%s: %s)",
-                                    self._mac,
-                                    char_uuid,
-                                    type(err).__name__,
-                                    err,
-                                )
-
-                            _LOGGER.info("BLE wake signal sent successfully")
-                            last_err = None
-                            break
-                        except Exception as err:  # noqa: BLE001 - best-effort fallback chain
-                            last_err = err
-                    if last_err is not None:
-                        raise last_err
-                finally:
-                    try:
-                        await asyncio.wait_for(client.disconnect(), timeout=5)
-                    except asyncio.TimeoutError:
-                        _LOGGER.debug(
-                            "BLE wake disconnect timed out (mac=%s)",
-                            self._mac,
-                        )
-            else:
-                # Fallback for environments without bleak-retry-connector.
-                async with BleakClient(device) as client:
-                    if not client.is_connected:
-                        _LOGGER.error("Failed to connect to %s", self._mac)
-                        return
-
-                    last_err: Exception | None = None
-                    for char_uuid in BLE_WAKE_CHAR_UUIDS:
-                        try:
-                            try:
-                                await asyncio.wait_for(
-                                    client.write_gatt_char(
-                                        char_uuid,
-                                        BLE_WAKE_PAYLOAD_ON,
-                                        response=True,
-                                    ),
-                                    timeout=2,
-                                )
-                            except asyncio.TimeoutError:
-                                _LOGGER.debug(
-                                    "BLE wake write timed out waiting for response; retrying without response (fallback BleakClient) (mac=%s, char=%s)",
-                                    self._mac,
-                                    char_uuid,
-                                )
-                                await client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD_ON,
-                                    response=False,
-                                )
-
-                            try:
-                                if BLE_WAKE_PULSE_GAP_SECONDS > 0:
-                                    await asyncio.sleep(BLE_WAKE_PULSE_GAP_SECONDS)
-                                await client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD_OFF,
-                                    response=False,
-                                )
-                            except Exception as err:  # noqa: BLE001 - best-effort
-                                _LOGGER.debug(
-                                    "BLE wake release write failed (fallback BleakClient) (mac=%s, char=%s, err=%s: %s)",
-                                    self._mac,
-                                    char_uuid,
-                                    type(err).__name__,
-                                    err,
-                                )
-
-                            _LOGGER.info("BLE wake signal sent successfully")
-                            last_err = None
-                            break
-                        except Exception as err:  # noqa: BLE001 - best-effort fallback chain
-                            last_err = err
-                    if last_err is not None:
-                        raise last_err
-        except Exception as err:
-            _LOGGER.error(
-                "Failed to send BLE wake signal to %s (%s): %s",
-                self._mac,
-                type(err).__name__,
-                err,
+                result.error or "unknown error",
             )
         
         # Always try to refresh device info after wake attempt.

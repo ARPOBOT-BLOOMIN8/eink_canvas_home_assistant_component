@@ -29,6 +29,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - BLE device selection dropdown in the config flow (uses Home Assistant Bluetooth discoveries).
 - Bluetooth discovery flow support (`async_step_bluetooth`) to prefill the BLE address when the device is discovered.
 - Discovery UX: show the discovered Bluetooth MAC address in Home Assistant's "Discovered" device list.
+- Config flow: new setup option **"Discover (mDNS)"** (browses generic mDNS `_http._tcp` and verifies candidates via `GET /deviceInfo`; filters by signature and requires `sn` + `bt_mac`).
 - Optional Bluetooth wake button (BLE) when a Bluetooth MAC address is configured (Sourced from https://github.com/mistrsoft/bloomin8_bt_wake)
 - Automatic device info refresh after BLE wake button press (with short 5s timeout).
 - Automatic device info refresh after state-changing actions (`show_next`, `clear_screen`, `whistle`, `upload_images_multi`, `upload_dithered_image_data`, `update_settings`, `show_playlist`).
@@ -41,6 +42,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Default behavior now avoids periodic `/deviceInfo` polling so the Canvas can sleep.
 - When polling is disabled, entities update from cached runtime data after a manual refresh (service/button).
 - Config flow: if a BLE address is configured, send a BLE wake signal and wait ~10 seconds before validating the IP connection.
+- Config flow: use `/deviceInfo.sn` as stable identity (config entry unique_id) when available; store normalized `/deviceInfo.bt_mac` as Bluetooth MAC for future BLE wake when Home Assistant Bluetooth is available.
 - `manifest.json`: declare Bluetooth discovery matcher for Bloomin8 service UUID.
 - Internals: centralize `/deviceInfo` fetching via a shared `DataUpdateCoordinator` to avoid one HTTP call per entity.
 - Internals: sensors and the media player consume coordinator snapshots; action-driven operations can push a fresh snapshot to update entities immediately.
@@ -61,6 +63,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - Media Browser: thumbnails are now served via Home Assistant's proxy endpoint and cached in-memory (battery-friendly and works via remote access; avoids direct device fetches).
 - `media_source`: provide a proper Media Source provider for Canvas galleries (devices → galleries → images), instead of a non-browsable stub.
 - Media Browser: when browsing "Home Assistant Media" from the Canvas media player, provider browsing is filtered to images where supported.
+- Media Browser: Canvas Media Source galleries now include thumbnail previews served via a Home Assistant proxy endpoint (cached, wake=False).
 - Image upload robustness: use proper query `params` instead of manually building query strings (avoids HTTP/client parsing issues such as duplicate `Content-Length`).
 - Work around device firmware returning invalid HTTP response headers (e.g., duplicate `Content-Length`) by falling back to a lenient raw-socket upload for `/upload`.
 - BLE wake reliability: prefer `bleak_retry_connector.establish_connection` when available.
@@ -76,6 +79,7 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 - BLE wake button: post-wake refresh now retries and uses a wake-enabled `/deviceInfo` request to avoid being skipped while Wi‑Fi is still coming up.
 - BLE wake UX: reduce noisy debug stack traces on the first post-wake `/deviceInfo` probe (common while Wi‑Fi/HTTP is still coming up), and avoid duplicate coordinator "Manually updated" logs by skipping identical snapshot pushes.
 - Device Info sensor: after manual refresh / BLE wake updates pushed into the coordinator, the coordinator is now correctly marked as successful so "Asleep (assumed)" does not linger from a previous failed refresh.
+- Config flow discovery: suppress ERROR logs for expected 404/HTML responses from non-Bloomin8 devices found via generic mDNS `_http._tcp` browsing; these probe failures are now logged at DEBUG only.
 
 ## [1.6.0] 
 

@@ -12,8 +12,14 @@ Notes / trade-offs:
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from urllib.parse import quote, unquote
+
+from typing import cast
+
+from aiohttp import web
 
 from homeassistant.components.media_player import MediaClass, MediaType
 from homeassistant.components.media_source import (
@@ -23,16 +29,23 @@ from homeassistant.components.media_source import (
 	MediaSourceItem,
 	PlayMedia,
 )
+from homeassistant.components.http import HomeAssistantView
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.core import HomeAssistant
 
 from .const import DEFAULT_NAME, DOMAIN
+from .thumbnail_utils import BytesLruTtlCache, guess_image_content_type, safe_path_segment
 
 _LOGGER = logging.getLogger(__name__)
 
 _SEG_DEVICE = "device"
 _SEG_GALLERY = "gallery"
 _SEG_IMAGE = "image"
+
+_MS_THUMBNAIL_URL = "/api/bloomin8_eink_canvas/media_source_thumbnail/{entry_id}/{gallery}/{filename}"
+_MS_THUMB_CACHE_TTL_SECONDS = 30 * 60
+_MS_THUMB_CACHE_MAX_ITEMS = 256
+_MS_THUMB_DATA_KEY = f"{DOMAIN}_media_source_thumbnails"
 
 
 def _enc(value: str) -> str:
@@ -43,17 +56,79 @@ def _dec(value: str) -> str:
 	return unquote(value or "")
 
 
-def _guess_mime_type(path: str) -> str:
-	lower = (path or "").lower()
-	if lower.endswith(".png"):
-		return "image/png"
-	if lower.endswith(".gif"):
-		return "image/gif"
-	if lower.endswith(".bmp"):
-		return "image/bmp"
-	if lower.endswith(".webp"):
-		return "image/webp"
-	return "image/jpeg"
+def _get_thumb_state(hass: HomeAssistant) -> dict[str, object]:
+	state = hass.data.get(_MS_THUMB_DATA_KEY)
+	if isinstance(state, dict):
+		return state
+	state = {}
+	hass.data[_MS_THUMB_DATA_KEY] = state
+	return state
+
+
+class _MediaSourceThumbnailView(HomeAssistantView):
+	"""Serve cached/proxied thumbnails for the media_source provider."""
+
+	url = _MS_THUMBNAIL_URL
+	name = "api:bloomin8_eink_canvas:media_source_thumbnail"
+	requires_auth = True
+
+	async def get(self, request: web.Request, entry_id: str, gallery: str, filename: str) -> web.Response:
+		hass: HomeAssistant = request.app["hass"]
+
+		try:
+			entry_id = safe_path_segment(entry_id)
+			gallery = safe_path_segment(unquote(gallery))
+			filename = safe_path_segment(unquote(filename))
+		except Exception:
+			raise web.HTTPBadRequest
+
+		domain_data = hass.data.get(DOMAIN, {})
+		if not isinstance(domain_data, dict) or entry_id not in domain_data:
+			raise web.HTTPNotFound
+
+		runtime_data = domain_data[entry_id]
+		api_client = getattr(runtime_data, "api_client", None)
+		if api_client is None:
+			raise web.HTTPServiceUnavailable
+
+		image_path = f"/gallerys/{gallery}/{filename}"
+		cache_key = f"{entry_id}:{image_path}"
+		now = time.monotonic()
+
+		state = _get_thumb_state(hass)
+		lock = state.get("lock")
+		cache_obj = state.get("cache")
+		if not isinstance(lock, asyncio.Lock):
+			lock = asyncio.Lock()
+			state["lock"] = lock
+		if not isinstance(cache_obj, BytesLruTtlCache):
+			cache_obj = BytesLruTtlCache(
+				ttl_seconds=_MS_THUMB_CACHE_TTL_SECONDS,
+				max_items=_MS_THUMB_CACHE_MAX_ITEMS,
+			)
+			state["cache"] = cache_obj
+
+		cache = cast(BytesLruTtlCache[str], cache_obj)
+
+		async with lock:
+			cached_fresh = cache.get_fresh(cache_key, now=now)
+			if cached_fresh is not None:
+				return web.Response(body=cached_fresh.data, content_type=cached_fresh.content_type)
+
+			cached_any = cache.get_any(cache_key)
+
+			# Battery-friendly: never wake for thumbnail requests.
+			data = await api_client.get_image_bytes(image_path, wake=False)
+			if not data:
+				# If we have stale data, return it; otherwise 404.
+				if cached_any is not None:
+					return web.Response(body=cached_any.data, content_type=cached_any.content_type)
+				raise web.HTTPNotFound
+
+			content_type = guess_image_content_type(filename)
+			cache.set(cache_key, data=data, content_type=content_type, now=now)
+
+			return web.Response(body=data, content_type=content_type)
 
 
 class Bloomin8EinkCanvasMediaSource(MediaSource):
@@ -64,6 +139,10 @@ class Bloomin8EinkCanvasMediaSource(MediaSource):
 	def __init__(self, hass: HomeAssistant) -> None:
 		super().__init__(DOMAIN)
 		self._hass = hass
+		_state = _get_thumb_state(hass)
+		if not _state.get("view_registered"):
+			hass.http.register_view(_MediaSourceThumbnailView)
+			_state["view_registered"] = True
 
 	def _loaded_entry_ids(self) -> list[str]:
 		domain_data = self._hass.data.get(DOMAIN, {})
@@ -218,6 +297,11 @@ class Bloomin8EinkCanvasMediaSource(MediaSource):
 				filename = image.get("name")
 				if not isinstance(filename, str) or not filename:
 					continue
+				thumb = _MS_THUMBNAIL_URL.format(
+					entry_id=entry_id,
+					gallery=_enc(gallery_name),
+					filename=_enc(filename),
+				)
 				children.append(
 					BrowseMediaSource(
 						domain=DOMAIN,
@@ -230,6 +314,7 @@ class Bloomin8EinkCanvasMediaSource(MediaSource):
 						media_content_type=MediaType.IMAGE,
 						can_play=True,
 						can_expand=False,
+						thumbnail=thumb,
 					)
 				)
 
@@ -265,7 +350,7 @@ class Bloomin8EinkCanvasMediaSource(MediaSource):
 		image_path = f"/gallerys/{gallery_name}/{filename}"
 		url = f"http://{host}{image_path}"
 
-		return PlayMedia(url=url, mime_type=_guess_mime_type(filename))
+		return PlayMedia(url=url, mime_type=guess_image_content_type(filename))
 
 
 async def async_get_media_source(hass: HomeAssistant) -> MediaSource:

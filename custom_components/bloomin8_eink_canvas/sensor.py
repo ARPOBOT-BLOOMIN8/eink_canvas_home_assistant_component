@@ -16,7 +16,8 @@ from homeassistant.const import CONF_HOST, CONF_NAME, PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+ 
+from .runtime_updates import connect_device_info_updated
 from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
@@ -24,7 +25,6 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
-    SIGNAL_DEVICE_INFO_UPDATED,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -433,11 +433,10 @@ class EinkLogSensor(SensorEntity):
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
-        signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{self._config_entry.entry_id}"
-        self._unsub_dispatcher = async_dispatcher_connect(
+        self._unsub_dispatcher = connect_device_info_updated(
             self.hass,
-            signal,
-            self._handle_runtime_data_updated,
+            entry_id=self._config_entry.entry_id,
+            callback=self._handle_runtime_data_updated,
         )
 
     async def async_will_remove_from_hass(self) -> None:

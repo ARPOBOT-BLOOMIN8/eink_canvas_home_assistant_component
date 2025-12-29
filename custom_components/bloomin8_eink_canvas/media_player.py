@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-from collections import OrderedDict
 import logging
 import os
 import time
@@ -29,6 +28,8 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dis
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.components.media_player.browse_media import async_process_play_media_url
 from homeassistant.exceptions import HomeAssistantError
+
+from .thumbnail_utils import BytesLruTtlCache, guess_image_content_type
 
 from .const import (
     DOMAIN,
@@ -61,6 +62,21 @@ _MEDIA_IMAGE_CACHE_TTL_SECONDS = 60
 # We therefore cache them longer and cap the cache size.
 _BROWSE_IMAGE_CACHE_TTL_SECONDS = 30 * 60
 _BROWSE_IMAGE_CACHE_MAX_ITEMS = 256
+
+
+def _media_source_images_only_filter(item: BrowseMedia) -> bool:
+    """Filter for media_source browsing: keep only images.
+
+    Home Assistant's media_source.async_browse_media expects content_filter to be a
+    callable. It will always keep expandable items (directories/apps) regardless of
+    the filter.
+    """
+    media_type = getattr(item, "media_content_type", None)
+    if media_type == MediaType.IMAGE:
+        return True
+    if isinstance(media_type, str) and media_type.startswith("image/"):
+        return True
+    return False
 
 
 async def async_setup_entry(
@@ -129,9 +145,11 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         self._media_image_cache_fetched_at: float = 0.0
 
         # In-memory cache for browse-media thumbnails (keyed by device image path).
-        # OrderedDict is used as a tiny LRU cache.
         self._browse_image_cache_lock = asyncio.Lock()
-        self._browse_image_cache: OrderedDict[str, tuple[float, bytes, str]] = OrderedDict()
+        self._browse_image_cache: BytesLruTtlCache[str] = BytesLruTtlCache(
+            ttl_seconds=_BROWSE_IMAGE_CACHE_TTL_SECONDS,
+            max_items=_BROWSE_IMAGE_CACHE_MAX_ITEMS,
+        )
 
     async def async_added_to_hass(self) -> None:
         """Register callbacks when entity is added."""
@@ -301,17 +319,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 return None
 
             # Guess content-type from extension.
-            lower = image_path.lower()
-            if lower.endswith(".png"):
-                content_type = "image/png"
-            elif lower.endswith(".gif"):
-                content_type = "image/gif"
-            elif lower.endswith(".bmp"):
-                content_type = "image/bmp"
-            elif lower.endswith(".webp"):
-                content_type = "image/webp"
-            else:
-                content_type = "image/jpeg"
+            content_type = guess_image_content_type(image_path)
 
             self._media_image_cache_path = image_path
             self._media_image_cache_bytes = image_bytes
@@ -319,20 +327,6 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             self._media_image_cache_fetched_at = now
 
             return (image_bytes, content_type)
-
-    @staticmethod
-    def _guess_image_content_type(path: str) -> str:
-        """Best-effort content type guess from filename extension."""
-        lower = (path or "").lower()
-        if lower.endswith(".png"):
-            return "image/png"
-        if lower.endswith(".gif"):
-            return "image/gif"
-        if lower.endswith(".bmp"):
-            return "image/bmp"
-        if lower.endswith(".webp"):
-            return "image/webp"
-        return "image/jpeg"
 
     async def async_get_browse_image(
         self,
@@ -367,18 +361,16 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         now = time.monotonic()
 
         async with self._browse_image_cache_lock:
-            cached = self._browse_image_cache.get(image_path)
-            if cached is not None:
-                cached_at, cached_bytes, cached_type = cached
-                if (now - cached_at) < _BROWSE_IMAGE_CACHE_TTL_SECONDS:
-                    # LRU bump
-                    self._browse_image_cache.move_to_end(image_path)
-                    _LOGGER.debug(
-                        "Serving cached browse image via HA proxy (path=%s, age=%.1fs)",
-                        image_path,
-                        now - cached_at,
-                    )
-                    return (cached_bytes, cached_type)
+            cached_fresh = self._browse_image_cache.get_fresh(image_path, now=now)
+            if cached_fresh is not None:
+                _LOGGER.debug(
+                    "Serving cached browse image via HA proxy (path=%s, age=%.1fs)",
+                    image_path,
+                    now - cached_fresh.fetched_at,
+                )
+                return (cached_fresh.data, cached_fresh.content_type)
+
+            cached_any = self._browse_image_cache.get_any(image_path)
 
             runtime_data = self._config_entry.runtime_data
             api_client = runtime_data.api_client
@@ -387,23 +379,17 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
             image_bytes = await api_client.get_image_bytes(image_path, wake=False)
             if not image_bytes:
                 # If we have a stale cache entry, prefer returning it over failing.
-                if cached is not None:
-                    cached_at, cached_bytes, cached_type = cached
+                if cached_any is not None:
                     _LOGGER.debug(
                         "Device browse image fetch failed; serving stale cached image (path=%s, age=%.1fs)",
                         image_path,
-                        now - cached_at,
+                        now - cached_any.fetched_at,
                     )
-                    return (cached_bytes, cached_type)
+                    return (cached_any.data, cached_any.content_type)
                 return None
 
-            content_type = self._guess_image_content_type(image_path)
-
-            self._browse_image_cache[image_path] = (now, image_bytes, content_type)
-            self._browse_image_cache.move_to_end(image_path)
-            # Enforce cache cap.
-            while len(self._browse_image_cache) > _BROWSE_IMAGE_CACHE_MAX_ITEMS:
-                self._browse_image_cache.popitem(last=False)
+            content_type = guess_image_content_type(image_path)
+            self._browse_image_cache.set(image_path, data=image_bytes, content_type=content_type, now=now)
 
             return (image_bytes, content_type)
 
@@ -784,7 +770,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
-                    content_filter={MediaType.IMAGE},
+                    content_filter=_media_source_images_only_filter,
                 )
         except Exception as err:
             # This often happens when Home Assistant has no media directory configured.
