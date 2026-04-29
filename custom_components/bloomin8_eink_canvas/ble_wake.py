@@ -52,9 +52,8 @@ async def async_ble_wake(
     mac_address: str,
     *,
     log_prefix: str = "BLE wake",
-    connect_timeout: float = 20,
-    max_attempts: int = 4,
-    write_timeout: float = 2,
+    connect_timeout: float = 6,
+    max_attempts: int = 2,
     disconnect_timeout: float = 5,
 ) -> BleWakeResult:
     """Best-effort: send wake pulse to the device via BLE.
@@ -121,30 +120,15 @@ async def async_ble_wake(
             last_err: Exception | None = None
             for char_uuid in BLE_WAKE_CHAR_UUIDS:
                 try:
+                    # Reference implementations (mobile + eink_frame_tool)
+                    # both use `withoutResponse` writes for the wake pulse.
                     t_write_start = time.monotonic()
-                    try:
-                        await asyncio.wait_for(
-                            client.write_gatt_char(
-                                char_uuid,
-                                BLE_WAKE_PAYLOAD_ON,
-                                response=True,
-                            ),
-                            timeout=float(write_timeout),
-                        )
-                        used_write_response = True
-                    except asyncio.TimeoutError:
-                        _LOGGER.debug(
-                            "%s write timed out waiting for response; retrying without response (mac=%s, char=%s)",
-                            log_prefix,
-                            mac,
-                            char_uuid,
-                        )
-                        await client.write_gatt_char(
-                            char_uuid,
-                            BLE_WAKE_PAYLOAD_ON,
-                            response=False,
-                        )
-                        used_write_response = False
+                    await client.write_gatt_char(
+                        char_uuid,
+                        BLE_WAKE_PAYLOAD_ON,
+                        response=False,
+                    )
+                    used_write_response = False
                     write_dt = time.monotonic() - t_write_start
 
                     # Release pulse (0x00) best-effort.
@@ -224,29 +208,12 @@ async def async_ble_wake(
                 for char_uuid in BLE_WAKE_CHAR_UUIDS:
                     try:
                         t_write_start = time.monotonic()
-                        try:
-                            await asyncio.wait_for(
-                                client.write_gatt_char(
-                                    char_uuid,
-                                    BLE_WAKE_PAYLOAD_ON,
-                                    response=True,
-                                ),
-                                timeout=float(write_timeout),
-                            )
-                            used_write_response = True
-                        except asyncio.TimeoutError:
-                            _LOGGER.debug(
-                                "%s write timed out waiting for response; retrying without response (fallback BleakClient) (mac=%s, char=%s)",
-                                log_prefix,
-                                mac,
-                                char_uuid,
-                            )
-                            await client.write_gatt_char(
-                                char_uuid,
-                                BLE_WAKE_PAYLOAD_ON,
-                                response=False,
-                            )
-                            used_write_response = False
+                        await client.write_gatt_char(
+                            char_uuid,
+                            BLE_WAKE_PAYLOAD_ON,
+                            response=False,
+                        )
+                        used_write_response = False
                         write_dt = time.monotonic() - t_write_start
 
                         release_ok = False

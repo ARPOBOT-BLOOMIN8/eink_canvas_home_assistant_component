@@ -338,9 +338,8 @@ class EinkCanvasApiClient:
                 self._hass,
                 self._mac_address,
                 log_prefix=log_prefix,
-                connect_timeout=20,
-                max_attempts=4,
-                write_timeout=2,
+                connect_timeout=6,
+                max_attempts=2,
                 disconnect_timeout=5,
             )
 
