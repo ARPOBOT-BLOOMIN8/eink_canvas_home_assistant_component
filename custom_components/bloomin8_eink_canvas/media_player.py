@@ -1,13 +1,13 @@
 """Support for BLOOMIN8 E-Ink Canvas."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
 from datetime import datetime
 from io import BytesIO
-
-from PIL import Image
+from typing import Any
 
 from homeassistant.components.media_player import (
     MediaPlayerEntity,
@@ -20,17 +20,21 @@ from homeassistant.components.media_player import (
 from homeassistant.components import media_source
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.components.media_player.browse_media import (
-    async_process_play_media_url,
-)
+from homeassistant.helpers.dispatcher import async_dispatcher_connect, async_dispatcher_send
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.components.media_player.browse_media import async_process_play_media_url
+from homeassistant.exceptions import HomeAssistantError
+
+from .thumbnail_utils import BytesLruTtlCache, guess_image_content_type
 
 from .const import (
     DOMAIN,
     DEFAULT_NAME,
+    SIGNAL_DEVICE_INFO_UPDATED,
     CONF_ORIENTATION,
     CONF_FILL_MODE,
     CONF_CONTAIN_COLOR,
@@ -47,6 +51,34 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 
+# Media-player cards (and other clients) may refresh images frequently. If they load
+# the image directly from the device, each HTTP request can reset the device's idle
+# timer and prevent auto-sleep. To avoid that, we serve images via HA's
+# media_player proxy and cache the bytes in-memory for a short time.
+_MEDIA_IMAGE_CACHE_TTL_SECONDS = 60
+
+# Browse-media thumbnails are usually much smaller than the "currently displayed" image,
+# but clients may request many of them in a short time when the user opens a gallery.
+# We therefore cache them longer and cap the cache size.
+_BROWSE_IMAGE_CACHE_TTL_SECONDS = 30 * 60
+_BROWSE_IMAGE_CACHE_MAX_ITEMS = 256
+
+
+def _media_source_images_only_filter(item: BrowseMedia) -> bool:
+    """Filter for media_source browsing: keep only images.
+
+    Home Assistant's media_source.async_browse_media expects content_filter to be a
+    callable. It will always keep expandable items (directories/apps) regardless of
+    the filter.
+    """
+    media_type = getattr(item, "media_content_type", None)
+    if media_type == MediaType.IMAGE:
+        return True
+    if isinstance(media_type, str) and media_type.startswith("image/"):
+        return True
+    return False
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     config_entry: ConfigEntry,
@@ -56,22 +88,33 @@ async def async_setup_entry(
     host = config_entry.data[CONF_HOST]
     name = config_entry.data.get(CONF_NAME, DEFAULT_NAME)
 
-    async_add_entities([EinkDisplayMediaPlayer(hass, config_entry, host, name)], True)
+    coordinator = config_entry.runtime_data.coordinator
+
+    # CoordinatorEntity.async_update triggers a coordinator refresh.
+    # We already do an initial coordinator refresh during integration setup, so
+    # update_before_add=True would cause an immediate extra HTTP fetch.
+    async_add_entities([EinkDisplayMediaPlayer(coordinator, hass, config_entry, host, name)], False)
 
 
-class EinkDisplayMediaPlayer(MediaPlayerEntity):
+class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     """BLOOMIN8 E-Ink Canvas media player for displaying images."""
 
     _attr_supported_features = (
         MediaPlayerEntityFeature.PLAY_MEDIA |
         MediaPlayerEntityFeature.BROWSE_MEDIA |
-        MediaPlayerEntityFeature.NEXT_TRACK |
-        MediaPlayerEntityFeature.TURN_ON |
-        MediaPlayerEntityFeature.TURN_OFF
+        MediaPlayerEntityFeature.NEXT_TRACK
     )
 
-    def __init__(self, hass: HomeAssistant, config_entry: ConfigEntry, host: str, name: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        hass: HomeAssistant,
+        config_entry: ConfigEntry,
+        host: str,
+        name: str,
+    ) -> None:
         """Initialize the media player."""
+        super().__init__(coordinator)
         self.hass = hass
         self._config_entry = config_entry
         self._host = host
@@ -80,11 +123,107 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         self._attr_unique_id = f"eink_display_{host}_media_player"
         self._attr_state = MediaPlayerState.ON
         self._attr_media_content_type = MediaType.IMAGE
-        self._attr_media_image_remotely_accessible = True
+        # Force Home Assistant to proxy the image instead of handing out a direct
+        # device URL to clients. This avoids clients repeatedly requesting the
+        # device image and keeping the Canvas awake.
+        self._attr_media_image_remotely_accessible = False
         self._attr_has_entity_name = True
         self._device_info = None
         self._screen_width = None
         self._screen_height = None
+        # Updates are driven by the shared coordinator (if polling enabled) or by
+        # action-driven refreshes that push new snapshots into the coordinator.
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+        self._signal = f"{SIGNAL_DEVICE_INFO_UPDATED}_{config_entry.entry_id}"
+
+        # In-memory cache for the currently displayed image.
+        self._media_image_cache_lock = asyncio.Lock()
+        self._media_image_cache_path: str | None = None
+        self._media_image_cache_bytes: bytes | None = None
+        self._media_image_cache_content_type: str | None = None
+        self._media_image_cache_fetched_at: float = 0.0
+
+        # In-memory cache for browse-media thumbnails (keyed by device image path).
+        self._browse_image_cache_lock = asyncio.Lock()
+        self._browse_image_cache: BytesLruTtlCache[str] = BytesLruTtlCache(
+            ttl_seconds=_BROWSE_IMAGE_CACHE_TTL_SECONDS,
+            max_items=_BROWSE_IMAGE_CACHE_MAX_ITEMS,
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added."""
+        await super().async_added_to_hass()
+
+        # Keep the legacy dispatcher for non-coordinator update paths.
+        # (Thread-safety: schedule_update_ha_state is safe.)
+        self._unsub_dispatcher = async_dispatcher_connect(
+            self.hass,
+            self._signal,
+            self._handle_runtime_data_updated,
+        )
+
+        # Apply cached device info once on startup so the entity is usable
+        # immediately after HA restart even if the device is asleep.
+        self._handle_coordinator_update()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up callbacks."""
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        """Handle runtime data updates (no network I/O)."""
+        # Thread-safety: use sync helper safe from any thread.
+        self.schedule_update_ha_state(False)
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle coordinator updates (no network I/O)."""
+        runtime_data = self._config_entry.runtime_data
+        self._apply_device_info(self.coordinator.data or runtime_data.device_info, notify=False)
+        super()._handle_coordinator_update()
+
+    def _apply_device_info(self, device_info: dict | None, *, notify: bool) -> None:
+        """Apply device info to entity and shared runtime data."""
+        runtime_data = self._config_entry.runtime_data
+
+        if device_info:
+            self._device_info = device_info
+            self._attr_state = MediaPlayerState.ON
+
+            # Store screen resolution on first update
+            if self._screen_width is None and self._screen_height is None:
+                self._screen_width = device_info.get("width", 1200)
+                self._screen_height = device_info.get("height", 1600)
+                _LOGGER.info(
+                    "Detected screen resolution: %dx%d",
+                    self._screen_width,
+                    self._screen_height,
+                )
+
+            runtime_data.device_info = device_info
+        else:
+            self._attr_state = MediaPlayerState.OFF
+            self._device_info = None
+
+        if notify:
+            async_dispatcher_send(self.hass, self._signal)
+
+    async def _async_fetch_device_info(self) -> None:
+        """Fetch device info from device on-demand (even if polling is disabled)."""
+        runtime_data = self._config_entry.runtime_data
+        api_client = runtime_data.api_client
+
+        # On-demand fetch is user/action-driven: allow BLE wake.
+        device_info = await api_client.get_device_info(wake=True)
+        # Push snapshot into coordinator so other entities update even when
+        # periodic polling is disabled.
+        runtime_data.coordinator.async_set_updated_data(device_info)
+        self._apply_device_info(device_info, notify=True)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -119,6 +258,141 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             return f"http://{self._host}{self._device_info['image']}"
         return None
 
+    async def async_get_media_image(self) -> tuple[bytes, str] | None:
+        """Return bytes for the current media image.
+
+        Home Assistant will serve this through the media_player proxy endpoint.
+        We keep a small in-memory cache to avoid hitting the device repeatedly
+        if the UI refreshes the image frequently.
+        """
+        image_path: str | None = None
+        if self._device_info:
+            image_path = self._device_info.get("image")
+
+        if not image_path:
+            return None
+
+        now = time.monotonic()
+
+        async with self._media_image_cache_lock:
+            cached_path = self._media_image_cache_path
+            cached_bytes = self._media_image_cache_bytes
+            cached_type = self._media_image_cache_content_type
+            cached_at = self._media_image_cache_fetched_at
+
+            # Fresh cache hit
+            if (
+                cached_path == image_path
+                and cached_bytes is not None
+                and cached_type is not None
+                and (now - cached_at) < _MEDIA_IMAGE_CACHE_TTL_SECONDS
+            ):
+                _LOGGER.debug(
+                    "Serving cached media image via HA proxy (path=%s, age=%.1fs)",
+                    image_path,
+                    now - cached_at,
+                )
+                return (cached_bytes, cached_type)
+
+            runtime_data = self._config_entry.runtime_data
+            api_client = runtime_data.api_client
+
+            # By default we do not want UI image refreshes to keep the device awake.
+            # However, if the user explicitly enabled BLE auto-wake, we allow an
+            # "auto" wake here so the UI can still show the current image when
+            # the device is asleep.
+            _LOGGER.debug(
+                "Fetching media image from device for HA proxy (path=%s)", image_path
+            )
+            image_bytes = await api_client.get_image_bytes(image_path, wake=None)
+
+            if not image_bytes:
+                # If the device is asleep/offline, returning the last cached
+                # image is better than repeatedly trying (which could keep it
+                # awake once it wakes).
+                if cached_path == image_path and cached_bytes is not None and cached_type is not None:
+                    _LOGGER.debug(
+                        "Device image fetch failed; serving stale cached image (path=%s)",
+                        image_path,
+                    )
+                    return (cached_bytes, cached_type)
+                return None
+
+            # Guess content-type from extension.
+            content_type = guess_image_content_type(image_path)
+
+            self._media_image_cache_path = image_path
+            self._media_image_cache_bytes = image_bytes
+            self._media_image_cache_content_type = content_type
+            self._media_image_cache_fetched_at = now
+
+            return (image_bytes, content_type)
+
+    async def async_get_browse_image(
+        self,
+        media_content_type: str,
+        media_content_id: str,
+        media_image_id: str | None = None,
+    ) -> tuple[bytes, str] | None:
+        """Return bytes for a browse-media thumbnail.
+
+        Home Assistant will serve this through a proxy endpoint.
+
+        Security: never accept URLs here (SSRF). We only accept absolute device
+        paths (starting with "/") and we additionally scope to known image
+        folders.
+
+        Battery: we never wake the device for thumbnail requests.
+        """
+        image_path = media_image_id or media_content_id
+        if not image_path or not isinstance(image_path, str):
+            return None
+
+        # Only accept absolute device paths and scope to gallery images.
+        # NOTE: We intentionally do not accept URLs.
+        if not image_path.startswith("/gallerys/"):
+            _LOGGER.debug(
+                "Refusing browse image request for unsupported id (type=%s, id=%s)",
+                media_content_type,
+                image_path,
+            )
+            return None
+
+        now = time.monotonic()
+
+        async with self._browse_image_cache_lock:
+            cached_fresh = self._browse_image_cache.get_fresh(image_path, now=now)
+            if cached_fresh is not None:
+                _LOGGER.debug(
+                    "Serving cached browse image via HA proxy (path=%s, age=%.1fs)",
+                    image_path,
+                    now - cached_fresh.fetched_at,
+                )
+                return (cached_fresh.data, cached_fresh.content_type)
+
+            cached_any = self._browse_image_cache.get_any(image_path)
+
+            runtime_data = self._config_entry.runtime_data
+            api_client = runtime_data.api_client
+
+            _LOGGER.debug("Fetching browse image from device for HA proxy (path=%s)", image_path)
+            image_bytes = await api_client.get_image_bytes(image_path, wake=False)
+            if not image_bytes:
+                # If we have a stale cache entry, prefer returning it over failing.
+                if cached_any is not None:
+                    _LOGGER.debug(
+                        "Device browse image fetch failed; serving stale cached image (path=%s, age=%.1fs)",
+                        image_path,
+                        now - cached_any.fetched_at,
+                    )
+                    return (cached_any.data, cached_any.content_type)
+                return None
+
+            content_type = guess_image_content_type(image_path)
+            self._browse_image_cache.set(image_path, data=image_bytes, content_type=content_type, now=now)
+
+            return (image_bytes, content_type)
+
     @property
     def media_title(self) -> str | None:
         """Return the current media title."""
@@ -129,30 +403,9 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         return image_path.split("/")[-1] if "/" in image_path else image_path
 
     async def async_update(self) -> None:
-        """Update device state and information."""
+        """Update entity state from cached coordinator/runtime data (no I/O)."""
         runtime_data = self._config_entry.runtime_data
-        api_client = runtime_data.api_client
-
-        device_info = await api_client.get_device_info()
-        if device_info:
-            self._device_info = device_info
-            self._attr_state = MediaPlayerState.ON
-
-            # Store screen resolution on first update
-            if self._screen_width is None and self._screen_height is None:
-                self._screen_width = device_info.get("width", 1200)
-                self._screen_height = device_info.get("height", 1600)
-                _LOGGER.info(
-                    "Detected screen resolution: %dx%d",
-                    self._screen_width,
-                    self._screen_height
-                )
-
-            # Update shared runtime data
-            runtime_data.device_info = device_info
-        else:
-            self._attr_state = MediaPlayerState.OFF
-            self._device_info = None
+        self._apply_device_info(self.coordinator.data or runtime_data.device_info, notify=False)
 
     async def async_turn_on(self) -> None:
         """Turn on the device (send whistle)."""
@@ -183,9 +436,9 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
 
     async def async_play_media(self, media_type: str, media_id: str, **kwargs) -> None:
         """Play media - show image using /show API."""
+        # HA may pass MediaType.IMAGE ("image") without a trailing slash.
         if not (media_type.startswith("image/") or media_type == "image"):
-            _LOGGER.error("Only images are supported, got: %s", media_type)
-            return
+            raise HomeAssistantError(f"Only images are supported, got: {media_type}")
 
         runtime_data = self._config_entry.runtime_data
         api_client = runtime_data.api_client
@@ -201,11 +454,11 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 )
 
                 media_id = async_process_play_media_url(self.hass, play_item.url)
-                _LOGGER.info("Using media URL: %s", media_id)
+                _LOGGER.debug("Using media URL: %s", media_id)
 
             # Ensure we have screen resolution
             if self._screen_width is None or self._screen_height is None:
-                await self.async_update()
+                await self._async_fetch_device_info()
 
             if self._screen_width is None or self._screen_height is None:
                 await self._add_log("Failed to detect screen resolution", "error")
@@ -218,20 +471,20 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                     await self._add_log(f"Successfully displayed image via /show API: {media_id}")
                 else:
                     await self._add_log(f"Failed to show image: {media_id}", "error")
-                await self.async_update()
+                await self._async_fetch_device_info()
                 return
 
             # Handle external images - upload and show
             image_data = await self._load_image_data(media_id)
             if not image_data:
                 await self._add_log(f"Failed to load image: {media_id}", "error")
-                return
+                raise HomeAssistantError(f"Failed to load image: {media_id}")
 
             # Process image for e-ink display
             processed_image_data = await self._process_image(image_data)
             if not processed_image_data:
                 await self._add_log("Failed to process image", "error")
-                return
+                raise HomeAssistantError("Failed to process image")
 
             # Generate filename and upload
             filename = f"ha_{int(time.time() * 1000)}.jpg"
@@ -239,7 +492,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             uploaded_path = await api_client.upload_image(processed_image_data, filename, gallery=gallery)
             if not uploaded_path:
                 await self._add_log(f"Upload failed: {filename}", "error")
-                return
+                raise HomeAssistantError(f"Upload failed: {filename}")
 
             await self._add_log(f"Successfully uploaded image: {uploaded_path}")
 
@@ -251,11 +504,14 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 await self._add_log(f"Failed to show uploaded image: {filename}", "error")
 
             # Refresh device info
-            await self.async_update()
+            await self._async_fetch_device_info()
 
         except Exception as err:
             await self._add_log(f"Error playing media: {str(err)}", "error")
-            _LOGGER.error("Error playing media: %s", str(err))
+            _LOGGER.exception("Error playing media: %s", err)
+            if isinstance(err, HomeAssistantError):
+                raise
+            raise HomeAssistantError(f"Error playing media: {err}") from err
 
     async def _load_image_data(self, media_id: str) -> bytes | None:
         """Load image data from file or URL."""
@@ -282,15 +538,19 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
     async def _process_image(self, image_data: bytes) -> bytes | None:
         """Process image for e-ink display with orientation and fill mode support."""
         try:
+            # Lazy import: Pillow can be heavy and may trigger HA's
+            # "blocking import_module" detector during platform setup.
+            from PIL import Image  # noqa: PLC0415
+
             image = Image.open(BytesIO(image_data))
-            _LOGGER.info("Processing image: %s, size: %s", image.format, image.size)
+            _LOGGER.debug("Processing image: %s, size: %s", image.format, image.size)
 
             # Get configuration
             orientation = self._config_entry.data.get(CONF_ORIENTATION, DEFAULT_ORIENTATION)
             fill_mode = self._config_entry.data.get(CONF_FILL_MODE, DEFAULT_FILL_MODE)
             contain_color = self._config_entry.data.get(CONF_CONTAIN_COLOR, DEFAULT_CONTAIN_COLOR)
 
-            _LOGGER.info(
+            _LOGGER.debug(
                 "Image processing config - orientation: %s, fill_mode: %s, contain_color: %s",
                 orientation, fill_mode, contain_color
             )
@@ -318,12 +578,14 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             return await self.hass.async_add_executor_job(save_image)
 
         except Exception as err:
-            _LOGGER.error("Error processing image: %s", err)
+            _LOGGER.exception("Error processing image: %s", err)
             return None
 
-    def _convert_to_rgb(self, image: Image.Image) -> Image.Image:
+    def _convert_to_rgb(self, image: Any) -> Any:
         """Convert image to RGB format."""
         if image.mode in ('RGBA', 'LA') or (image.mode == 'P' and 'transparency' in image.info):
+            from PIL import Image  # noqa: PLC0415
+
             background = Image.new('RGB', image.size, (255, 255, 255))
             if image.mode == 'P':
                 image = image.convert('RGBA')
@@ -339,25 +601,29 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         if len(hex_color) != 6:
             return (255, 255, 255)  # Default to white
         try:
-            return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            return (
+                int(hex_color[0:2], 16),
+                int(hex_color[2:4], 16),
+                int(hex_color[4:6], 16),
+            )
         except ValueError:
             return (255, 255, 255)
 
     def _process_with_orientation(
         self,
-        image: Image.Image,
+        image: Any,
         orientation: str,
         fill_mode: str,
         contain_color: str
-    ) -> Image.Image:
+    ) -> Any:
         """Process image based on orientation and fill mode settings.
 
         The device API always expects portrait images. For landscape orientation,
         we create a landscape-oriented image then rotate it 90° clockwise.
         """
         # Screen resolution (always portrait from device)
-        screen_width = self._screen_width   # e.g., 1200
-        screen_height = self._screen_height  # e.g., 1600
+        screen_width = self._screen_width or 1200   # e.g., 1200
+        screen_height = self._screen_height or 1600  # e.g., 1600
 
         # Determine canvas dimensions based on orientation
         canvas_is_landscape = (orientation == ORIENTATION_LANDSCAPE)
@@ -382,7 +648,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         else:
             actual_fill_mode = fill_mode
 
-        _LOGGER.info(
+        _LOGGER.debug(
             "Processing: image %dx%d (%s), canvas %dx%d (%s), fill_mode: %s -> %s",
             image.width, image.height,
             "landscape" if image_is_landscape else "portrait",
@@ -403,18 +669,20 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
         # If landscape orientation, rotate 90° clockwise to make it portrait for API
         if canvas_is_landscape:
             processed = processed.rotate(-90, expand=True)
-            _LOGGER.info("Rotated image for landscape display: %dx%d", processed.width, processed.height)
+            _LOGGER.debug("Rotated image for landscape display: %dx%d", processed.width, processed.height)
 
-        _LOGGER.info("Final processed image size: %dx%d", processed.width, processed.height)
+        _LOGGER.debug("Final processed image size: %dx%d", processed.width, processed.height)
         return processed
 
     def _cover_image(
         self,
-        image: Image.Image,
+        image: Any,
         target_width: int,
         target_height: int
-    ) -> Image.Image:
+    ) -> Any:
         """Scale and crop image to cover the target area (center crop)."""
+        from PIL import Image  # noqa: PLC0415
+
         image_aspect = image.width / image.height
         target_aspect = target_width / target_height
 
@@ -442,12 +710,14 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
 
     def _contain_image(
         self,
-        image: Image.Image,
+        image: Any,
         target_width: int,
         target_height: int,
         bg_color: tuple[int, int, int]
-    ) -> Image.Image:
+    ) -> Any:
         """Scale image to fit within target area, fill remaining with background color."""
+        from PIL import Image  # noqa: PLC0415
+
         image_aspect = image.width / image.height
         target_aspect = target_width / target_height
 
@@ -482,25 +752,40 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 gallery_name = media_content_id[8:]
                 return await self._browse_gallery_images(gallery_name)
             elif media_content_id == "local_media":
+                # Show the *media source root* so the user can browse all providers
+                # (local media, camera sources, streamers, TTS, ...). Individual
+                # providers may still error if not configured, which is handled in
+                # the exception path below.
+                # Don't apply the filter at the root provider list — some
+                # providers validate config eagerly and would emit errors before
+                # the user even picks one.
                 return await media_source.async_browse_media(
                     self.hass,
                     None,
-                    content_filter=lambda item: item.media_content_type and (
-                        item.media_content_type.startswith('image/')
-                        or item.media_content_type == 'image'
-                    )
                 )
             else:
+                # If possible, keep browsing focused on images to avoid listing
+                # irrelevant audio/video items for an e-ink photo frame.
+                # NOTE: We intentionally do *not* apply the filter at the root
+                # provider list (media_content_id=None), because some providers may
+                # validate config eagerly and emit errors even before the user selects
+                # a provider.
                 return await media_source.async_browse_media(
                     self.hass,
                     media_content_id,
-                    content_filter=lambda item: item.media_content_type and (
-                        item.media_content_type.startswith('image/')
-                        or item.media_content_type == 'image'
-                    )
+                    content_filter=_media_source_images_only_filter,
                 )
         except Exception as err:
-            _LOGGER.error("Error browsing media: %s", str(err))
+            # This often happens when Home Assistant has no media directory configured.
+            # Avoid spamming ERROR logs for an expected setup condition.
+            msg = str(err)
+            if "Media directory" in msg and "does not exist" in msg:
+                _LOGGER.warning(
+                    "Media browsing unavailable: %s. Configure a media directory in Home Assistant to use Local Media.",
+                    msg,
+                )
+            else:
+                _LOGGER.error("Error browsing media: %s", msg)
             return BrowseMedia(
                 title="Error",
                 media_class=MediaClass.DIRECTORY,
@@ -524,7 +809,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 thumbnail=None,
             ),
             BrowseMedia(
-                title="Local Media",
+                title="Home Assistant Media",
                 media_class=MediaClass.DIRECTORY,
                 media_content_type="directory",
                 media_content_id="local_media",
@@ -586,6 +871,17 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
             image_name = image.get("name", "")
             image_path = f"/gallerys/{gallery_name}/{image_name}"
 
+            # Always proxy thumbnails through Home Assistant (battery-friendly and
+            # works with remote access). The actual bytes will be provided via
+            # async_get_browse_image() and are cached in-memory.
+            # HA 2025.12.x: the browse-image proxy URL generator lives on
+            # MediaPlayerEntity itself (not in browse_media.py).
+            thumbnail = self.get_browse_image_url(
+                MediaType.IMAGE,
+                image_path,
+                media_image_id=image_path,
+            )
+
             children.append(BrowseMedia(
                 title=image_name,
                 media_class=MediaClass.IMAGE,
@@ -593,7 +889,7 @@ class EinkDisplayMediaPlayer(MediaPlayerEntity):
                 media_content_id=image_path,
                 can_play=True,
                 can_expand=False,
-                thumbnail=f"http://{self._host}{image_path}",
+                thumbnail=thumbnail,
             ))
 
         return BrowseMedia(
