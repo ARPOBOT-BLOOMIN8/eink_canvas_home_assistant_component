@@ -483,6 +483,5 @@ If all three look right and the device still misbehaves, capture a fresh device 
 ### 6.3 Known firmware quirks
 
 - The log line `Network status: 0, download succeeded:` after `File size: -1` is misleading — the firmware reports "succeeded" when the socket closes cleanly even though no usable body was read. Treat `File size: -1` as authoritative.
-- `Free heap` < 40 KB before download can cause OOM during JPEG decode. Reduce image dimensions or quality if your hardware is memory-constrained.
 
 ---
