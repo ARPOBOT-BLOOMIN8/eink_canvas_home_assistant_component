@@ -196,6 +196,18 @@ logger:
 
 -----
 
+## Community Projects
+
+Stuff people have built around this integration. Made something? Open a PR and add it.
+
+  * **[bloomin8-canvas-card](https://github.com/teras/bloomin8-canvas-card)** by [@teras](https://github.com/teras) — Lovelace card to change a panel's image from the dashboard: drag-and-drop, crop-to-content, and live saturation/gamma/contrast preview for the e-ink palette. Client-side, HACS-installable.
+  * **[bloomin8_bt_wake](https://github.com/mistrsoft/bloomin8_bt_wake)** by [@mistrsoft](https://github.com/mistrsoft) — Wake the display over Bluetooth.
+  * **[bloomin8_pull](https://github.com/fwmone/bloomin8_pull)** by [@fwmone](https://github.com/fwmone) — Implements the [Schedule Pull API](docs/Schedule_Pull_API.md) for scheduled image pulling from an upstream server.
+
+Third-party projects, separately maintained, not officially supported.
+
+-----
+
 **Find Us:** [Official Website](https://bloomin8.com) | [API Docs](https://bloomin8.readme.io) | [Business Contact](mailto:hello@bloomin8.com)
 
 
