@@ -45,6 +45,46 @@ CONF_ORIENTATION = "orientation"
 CONF_FILL_MODE = "fill_mode"
 CONF_CONTAIN_COLOR = "contain_color"
 
+# Optional Bluetooth wake configuration
+CONF_MAC_ADDRESS = "mac_address"
+
+# If enabled, the integration will try to wake the device via BLE (using mac_address)
+# before sending HTTP API commands.
+CONF_BLE_AUTO_WAKE = "ble_auto_wake"
+DEFAULT_BLE_AUTO_WAKE = False
+
+# Dispatcher signal base for notifying entities that cached runtime data changed.
+# Entities use: f"{SIGNAL_DEVICE_INFO_UPDATED}_{entry_id}".
+SIGNAL_DEVICE_INFO_UPDATED = f"{DOMAIN}_device_info_updated"
+
+# Confirmed BLE details from reverse engineering (mistrsoft/bloomin8_bt_wake)
+BLE_SERVICE_UUID = "0000f000-0000-1000-8000-00805f9b34fb"
+BLE_CHAR_UUID = "0000f001-0000-1000-8000-00805f9b34fb"
+# Newer reverse engineering indicates wake behaves like a short "pulse":
+# write 0x01 (assert) and then 0x00 (release).
+BLE_WAKE_PAYLOAD_ON = b"\x01"
+BLE_WAKE_PAYLOAD_OFF = b"\x00"
+BLE_WAKE_PULSE: tuple[bytes, bytes] = (BLE_WAKE_PAYLOAD_ON, BLE_WAKE_PAYLOAD_OFF)
+# Small gap between the two writes. Mirrors the mobile/desktop reference
+# implementations which use a 1ms gap with `withoutResponse` writes.
+BLE_WAKE_PULSE_GAP_SECONDS = 0.001
+
+# Backwards compatibility: older call sites may still import BLE_WAKE_PAYLOAD.
+BLE_WAKE_PAYLOAD = BLE_WAKE_PAYLOAD_ON
+
+# 0xFFF0 is the device's communication GATT service. We use it only for
+# advertisement discovery — it is not a wake target.
+BLE_ALT_SERVICE_UUID = "0000fff0-0000-1000-8000-00805f9b34fb"
+
+# Manufacturer / company identifier observed in advertisements (little-endian in
+# raw bytes). Example: 0x013F == 319.
+BLE_MANUFACTURER_ID = 0x013F
+
+# Candidates used for discovery and wake attempts.
+BLE_SERVICE_UUIDS: tuple[str, ...] = (BLE_SERVICE_UUID, BLE_ALT_SERVICE_UUID)
+# Wake writes go ONLY to 0xF001. 0xFFF1 is a notify char; never write to it.
+BLE_WAKE_CHAR_UUIDS: tuple[str, ...] = (BLE_CHAR_UUID,)
+
 # Image processing options
 ORIENTATION_PORTRAIT = "portrait"
 ORIENTATION_LANDSCAPE = "landscape"
@@ -68,3 +108,38 @@ CONTAIN_COLORS = {
 ERROR_CANNOT_CONNECT = "cannot_connect"
 ERROR_INVALID_AUTH = "invalid_auth"
 ERROR_UNKNOWN = "unknown"
+
+# Post-wake refresh timeout (shorter than normal to quickly detect if device woke up)
+POST_WAKE_REFRESH_TIMEOUT_SECONDS = 5
+
+# Initial delay after sending a BLE wake pulse before attempting the first HTTP refresh.
+# Many devices need a couple seconds to bring Wi‑Fi + HTTP up after BLE wake.
+POST_WAKE_INITIAL_DELAY_SECONDS = 4
+
+# Service targeting attributes
+ATTR_DEVICE_ID = "device_id"
+ATTR_ENTITY_ID = "entity_id"
+
+# List of all services (for registration/cleanup)
+SERVICE_NAMES = [
+    "show_next",
+    "sleep",
+    "reboot",
+    "clear_screen",
+    "whistle",
+    "refresh_device_info",
+    "update_settings",
+    "upload_image_url",
+    "upload_image_data",
+    "upload_images_multi",
+    "upload_dithered_image_data",
+    "delete_image",
+    "create_gallery",
+    "delete_gallery",
+    "list_galleries",
+    "show_playlist",
+    "list_playlists",
+    "get_playlist",
+    "put_playlist",
+    "delete_playlist",
+]

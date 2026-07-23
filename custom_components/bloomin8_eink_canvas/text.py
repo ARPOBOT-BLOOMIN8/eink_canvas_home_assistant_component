@@ -6,9 +6,11 @@ import logging
 from homeassistant.components.text import TextEntity, TextMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+
+from .runtime_updates import connect_device_info_updated
 
 from .const import DOMAIN, DEFAULT_NAME
 
@@ -47,6 +49,34 @@ class EinkDeviceNameText(TextEntity):
         self._attr_native_min = 1
         self._attr_native_max = 50
         self._attr_entity_category = EntityCategory.CONFIG
+        # Never poll directly; we update from shared coordinator/runtime cache.
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added."""
+        await super().async_added_to_hass()
+
+        self._unsub_dispatcher = connect_device_info_updated(
+            self.hass,
+            entry_id=self._config_entry.entry_id,
+            callback=self._handle_runtime_data_updated,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up callbacks."""
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        """Handle runtime data updates (no network I/O)."""
+        # Thread-safety: use sync helper safe from any thread.
+        # Force a refresh so async_update() runs and pulls the latest value from
+        # runtime_data.device_info.
+        self.schedule_update_ha_state(True)
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -58,6 +88,15 @@ class EinkDeviceNameText(TextEntity):
             model="E-Ink Canvas",
             # configuration_url=f"http://{self._host}",  # Disabled to prevent external access
         )
+
+    @property
+    def available(self) -> bool:
+        """Return entity availability.
+
+        Available if we have any cached device info. This allows text entities
+        to show the last known value when the device is offline/asleep.
+        """
+        return self._get_device_info() is not None
 
     def _get_device_info(self) -> dict | None:
         """Get device info from shared runtime data."""
@@ -74,21 +113,12 @@ class EinkDeviceNameText(TextEntity):
 
     async def async_set_value(self, value: str) -> None:
         """Set the device name."""
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update device name: device info not available")
-            return
-
-        # Call update_settings service with new device name
+        # Call update_settings service with new device name (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
                 "name": value,
-                "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": device_info.get("max_idle", 300),
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,
         ) 

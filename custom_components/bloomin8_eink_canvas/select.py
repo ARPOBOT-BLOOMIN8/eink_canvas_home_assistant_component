@@ -6,9 +6,11 @@ import logging
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_HOST, CONF_NAME, EntityCategory
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import DeviceInfo
+
+from .runtime_updates import connect_device_info_updated
 
 from .const import DOMAIN, DEFAULT_NAME
 
@@ -78,6 +80,45 @@ class EinkBaseSelect(SelectEntity):
         self._device_name = device_name
         self._attr_has_entity_name = True
         self._attr_entity_category = EntityCategory.CONFIG
+        # Never poll directly; we update from shared coordinator/runtime cache.
+        self._attr_should_poll = False
+        self._unsub_dispatcher = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register callbacks when entity is added."""
+        await super().async_added_to_hass()
+
+        self._unsub_dispatcher = connect_device_info_updated(
+            self.hass,
+            entry_id=self._config_entry.entry_id,
+            callback=self._handle_runtime_data_updated,
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up callbacks."""
+        if self._unsub_dispatcher is not None:
+            self._unsub_dispatcher()
+            self._unsub_dispatcher = None
+        await super().async_will_remove_from_hass()
+
+    @callback
+    def _handle_runtime_data_updated(self) -> None:
+        """Handle runtime data updates (no network I/O)."""
+        # Thread-safety: use sync helper safe from any thread.
+        # Important: these entities compute their state in async_update() based on
+        # runtime_data.device_info. If we don't force a refresh here, HA will only
+        # re-write the *existing* state and the UI won't reflect external changes
+        # (e.g. settings changed via curl + manual refresh).
+        self.schedule_update_ha_state(True)
+
+    @property
+    def available(self) -> bool:
+        """Return entity availability.
+
+        Available if we have any cached device info. This allows select entities
+        to show the last known value when the device is offline/asleep.
+        """
+        return self._get_device_info() is not None
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -128,21 +169,12 @@ class EinkSleepDurationSelect(EinkBaseSelect):
             _LOGGER.error("Invalid sleep duration option: %s", option)
             return
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update sleep duration: device info not available")
-            return
-
-        # Call update_settings service with new sleep duration
+        # Call update_settings service with new sleep duration (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
                 "sleep_duration": SLEEP_DURATION_OPTIONS[option],
-                "max_idle": device_info.get("max_idle", 300),
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
             },
             blocking=True,
         )
@@ -158,19 +190,51 @@ class EinkMaxIdleSelect(EinkBaseSelect):
         self._attr_unique_id = f"eink_display_{host}_max_idle"
         self._attr_icon = "mdi:timer"
         self._attr_options = list(MAX_IDLE_OPTIONS.keys())
+        self._raw_max_idle: int | None = None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, int] | None:
+        """Return entity specific state attributes."""
+        if self._raw_max_idle is not None:
+            return {"raw_max_idle_seconds": self._raw_max_idle}
+        return None
 
     async def async_update(self) -> None:
         """Update the select input value."""
         device_info = self._get_device_info()
         if device_info:
             current_value = device_info.get("max_idle", 300)
+            self._raw_max_idle = current_value
             # Find the matching option
             for option, value in MAX_IDLE_OPTIONS.items():
                 if value == current_value:
                     self._attr_current_option = option
                     return
-            # Default to 5 minutes if no match found
-            self._attr_current_option = "5 minutes"
+            # No exact match found - find the closest option
+            # This handles firmware values not in our predefined list
+            if current_value == -1:
+                self._attr_current_option = "never sleep"
+            elif current_value <= 10:
+                self._attr_current_option = "10 seconds"
+            elif current_value <= 30:
+                self._attr_current_option = "30 seconds"
+            elif current_value <= 60:
+                self._attr_current_option = "1 minute"
+            elif current_value <= 120:
+                self._attr_current_option = "2 minutes"
+            elif current_value <= 180:
+                self._attr_current_option = "3 minutes"
+            elif current_value <= 300:
+                self._attr_current_option = "5 minutes"
+            elif current_value <= 600:
+                self._attr_current_option = "10 minutes"
+            else:
+                self._attr_current_option = "10 minutes"
+            _LOGGER.debug(
+                "max_idle=%s not in options, using closest match: %s",
+                current_value,
+                self._attr_current_option,
+            )
         else:
             self._attr_current_option = "5 minutes"
 
@@ -180,21 +244,22 @@ class EinkMaxIdleSelect(EinkBaseSelect):
             _LOGGER.error("Invalid max idle option: %s", option)
             return
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update max idle time: device info not available")
-            return
+        new_max_idle = MAX_IDLE_OPTIONS[option]
+        # Very low idle times can make the device fall asleep between HA actions.
+        # This is a common source of "device offline" confusion.
+        if 0 < new_max_idle <= 30:
+            _LOGGER.warning(
+                "Max Idle Time set to %ss. Very low values can cause frequent deep sleep; "
+                "consider enabling BLE auto-wake for reliable automations/UI.",
+                new_max_idle,
+            )
 
-        # Call update_settings service with new max idle time
+        # Call update_settings service with new max idle time (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
-                "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": MAX_IDLE_OPTIONS[option],
-                "idx_wake_sens": device_info.get("idx_wake_sens", 3),
+                "max_idle": new_max_idle,
             },
             blocking=True,
         )
@@ -232,20 +297,11 @@ class EinkWakeSensitivitySelect(EinkBaseSelect):
             _LOGGER.error("Invalid wake sensitivity option: %s", option)
             return
 
-        # Get current device settings
-        device_info = self._get_device_info()
-        if not device_info:
-            _LOGGER.error("Cannot update wake sensitivity: device info not available")
-            return
-
-        # Call update_settings service with new wake sensitivity
+        # Call update_settings service with new wake sensitivity (minimal payload)
         await self.hass.services.async_call(
             DOMAIN,
             "update_settings",
             {
-                "name": device_info.get("name", "E-Ink Canvas"),
-                "sleep_duration": device_info.get("sleep_duration", 86400),
-                "max_idle": device_info.get("max_idle", 300),
                 "idx_wake_sens": WAKE_SENSITIVITY_OPTIONS[option],
             },
             blocking=True,
