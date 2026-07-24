@@ -212,4 +212,4 @@ Third-party projects, separately maintained, not officially supported.
 
 
 
-© 2025 BLOOMIN8. All rights reserved.
+© 2026 BLOOMIN8. All rights reserved.
