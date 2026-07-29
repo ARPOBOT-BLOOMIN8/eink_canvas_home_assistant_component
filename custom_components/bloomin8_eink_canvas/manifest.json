@@ -21,5 +21,5 @@
     "iot_class": "local_polling",
     "issue_tracker": "https://github.com/ARPOBOT-BLOOMIN8/eink_canvas_home_assistant_component/issues",
     "requirements": ["aiohttp", "Pillow"],
-    "version": "1.6.0"
+    "version": "1.7.0"
 }
