@@ -453,7 +453,10 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
                     self.hass, media_id, self.entity_id
                 )
 
-                media_id = async_process_play_media_url(self.hass, play_item.url)
+                media_id = async_process_play_media_url(
+                    self.hass,
+                    play_item.url.replace("/api/image_proxy_stream/", "/api/image_proxy/", 1),
+                )
                 _LOGGER.debug("Using media URL: %s", media_id)
 
             # Ensure we have screen resolution
