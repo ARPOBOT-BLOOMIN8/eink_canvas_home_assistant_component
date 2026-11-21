@@ -65,7 +65,16 @@ async def async_ble_wake(
     if not mac:
         return BleWakeResult(attempted=False, ok=False, mode="none", error="missing mac")
 
-    ble_device = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
+    try:
+        ble_device = bluetooth.async_ble_device_from_address(hass, mac, connectable=True)
+    except RuntimeError:
+        # The Bluetooth integration is not set up, so there is no Bluetooth manager.
+        return BleWakeResult(
+            attempted=False,
+            ok=False,
+            mode="none",
+            error="Bluetooth is not set up in Home Assistant",
+        )
     if not ble_device:
         return BleWakeResult(
             attempted=False,
