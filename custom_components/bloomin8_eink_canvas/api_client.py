@@ -38,6 +38,7 @@ from .const import (
     ENDPOINT_PLAYLIST,
     ENDPOINT_PLAYLIST_LIST,
     ENDPOINT_STATUS,
+    BLE_WAKE_CONNECT_TIMEOUT_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -49,6 +50,9 @@ _LOGGER = logging.getLogger(__name__)
 #   device is still bringing up Wi-Fi.
 # Keep these values conservative to avoid battery drain.
 _BLE_AUTO_WAKE_COOLDOWN_SECONDS = 5
+# After a wake pulse was delivered, the device needs ~20 s to bring Wi-Fi up. Another wake in
+# that time only costs battery and a proxy connection, so automatic wakes wait this long.
+_BLE_WAKE_DELIVERED_GRACE_SECONDS = 45
 _BLE_POST_WAKE_SETTLE_SECONDS = 0.5
 _HTTP_ONLINE_POLL_INTERVAL_SECONDS = 1.0
 
@@ -80,6 +84,8 @@ class EinkCanvasApiClient:
         self._ble_wake_lock = asyncio.Lock()
         # Rate limit: avoid spamming BLE wake on repeated calls.
         self._last_ble_wake_attempt = 0.0
+        # When a wake pulse was last delivered (by this client or the Wake button).
+        self._last_ble_wake_delivered = 0.0
 
         # Some device firmwares send invalid HTTP response headers (e.g., duplicate
         # Content-Length) on /upload responses. Once detected, we switch to a lenient
@@ -276,6 +282,25 @@ class EinkCanvasApiClient:
             )
             return None
 
+    def note_ble_wake(self, ok: bool) -> None:
+        """Record a BLE wake made outside this client, such as by the Wake (Bluetooth) button.
+
+        Automatic wakes then hold off while the device brings Wi-Fi up, instead of
+        sending a second wake right after the first.
+        """
+        now = time.monotonic()
+        self._last_ble_wake_attempt = now
+        if ok:
+            self._last_ble_wake_delivered = now
+
+    def _auto_wake_cooldown_remaining(self, now: float) -> float:
+        """Seconds until an automatic BLE wake may be attempted again; 0 if it may now."""
+        return max(
+            0.0,
+            _BLE_AUTO_WAKE_COOLDOWN_SECONDS - (now - self._last_ble_wake_attempt),
+            _BLE_WAKE_DELIVERED_GRACE_SECONDS - (now - self._last_ble_wake_delivered),
+        )
+
     async def async_ensure_awake(self, *, force_ble: bool = False) -> None:
         """Best-effort: wake device via BLE and wait until HTTP is reachable.
 
@@ -300,14 +325,15 @@ class EinkCanvasApiClient:
         now = time.monotonic()
         # Cooldown by default; explicit forced wakes bypass the cooldown.
         if not force_ble:
-            if (now - self._last_ble_wake_attempt) < _BLE_AUTO_WAKE_COOLDOWN_SECONDS:
+            remaining = self._auto_wake_cooldown_remaining(now)
+            if remaining > 0:
                 _LOGGER.debug(
-                        "%s skipped due to cooldown (host=%s, mac=%s, cooldown_remaining=%.1fs)",
-                        log_prefix,
-                        self._host,
-                        self._mac_address,
-                        _BLE_AUTO_WAKE_COOLDOWN_SECONDS - (now - self._last_ble_wake_attempt),
-                    )
+                    "%s skipped due to cooldown (host=%s, mac=%s, cooldown_remaining=%.1fs)",
+                    log_prefix,
+                    self._host,
+                    self._mac_address,
+                    remaining,
+                )
                 return
 
         async with self._ble_wake_lock:
@@ -317,13 +343,14 @@ class EinkCanvasApiClient:
 
             now = time.monotonic()
             if not force_ble:
-                if (now - self._last_ble_wake_attempt) < _BLE_AUTO_WAKE_COOLDOWN_SECONDS:
+                remaining = self._auto_wake_cooldown_remaining(now)
+                if remaining > 0:
                     _LOGGER.debug(
-                            "%s skipped due to cooldown after lock wait (host=%s, mac=%s, cooldown_remaining=%.1fs)",
-                            log_prefix,
+                        "%s skipped due to cooldown after lock wait (host=%s, mac=%s, cooldown_remaining=%.1fs)",
+                        log_prefix,
                         self._host,
                         self._mac_address,
-                        _BLE_AUTO_WAKE_COOLDOWN_SECONDS - (now - self._last_ble_wake_attempt),
+                        remaining,
                     )
                     return
             self._last_ble_wake_attempt = now
@@ -338,10 +365,12 @@ class EinkCanvasApiClient:
                 self._hass,
                 self._mac_address,
                 log_prefix=log_prefix,
-                connect_timeout=6,
+                connect_timeout=BLE_WAKE_CONNECT_TIMEOUT_SECONDS,
                 max_attempts=2,
                 disconnect_timeout=5,
             )
+            if result.ok:
+                self._last_ble_wake_delivered = time.monotonic()
 
             # If we couldn't even attempt a BLE wake (device not in cache, no bleak,
             # not connectable), keep the previous behavior: don't block waiting for

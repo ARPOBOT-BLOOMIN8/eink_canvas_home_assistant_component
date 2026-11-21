@@ -69,6 +69,13 @@ BLE_WAKE_PULSE: tuple[bytes, bytes] = (BLE_WAKE_PAYLOAD_ON, BLE_WAKE_PAYLOAD_OFF
 # implementations which use a 1ms gap with `withoutResponse` writes.
 BLE_WAKE_PULSE_GAP_SECONDS = 0.001
 
+# Time allowed to connect for a BLE wake. Through a Bluetooth proxy with a weak signal a connect
+# can take well over 6 s, and cutting it short withdraws the connect.
+BLE_WAKE_CONNECT_TIMEOUT_SECONDS = 20
+
+# Pause after the wake pulse before disconnecting, so writes without response are not dropped.
+BLE_WAKE_DISCONNECT_DELAY_SECONDS = 1.0
+
 # Backwards compatibility: older call sites may still import BLE_WAKE_PAYLOAD.
 BLE_WAKE_PAYLOAD = BLE_WAKE_PAYLOAD_ON
 
