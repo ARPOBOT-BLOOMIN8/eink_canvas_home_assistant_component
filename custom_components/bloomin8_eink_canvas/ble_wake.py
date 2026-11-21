@@ -26,6 +26,8 @@ from .const import (
     BLE_WAKE_PAYLOAD_ON,
     BLE_WAKE_PAYLOAD_OFF,
     BLE_WAKE_PULSE_GAP_SECONDS,
+    BLE_WAKE_CONNECT_TIMEOUT_SECONDS,
+    BLE_WAKE_DISCONNECT_DELAY_SECONDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -52,7 +54,7 @@ async def async_ble_wake(
     mac_address: str,
     *,
     log_prefix: str = "BLE wake",
-    connect_timeout: float = 6,
+    connect_timeout: float = BLE_WAKE_CONNECT_TIMEOUT_SECONDS,
     max_attempts: int = 2,
     disconnect_timeout: float = 5,
 ) -> BleWakeResult:
@@ -163,6 +165,12 @@ async def async_ble_wake(
             if last_err is not None:
                 raise last_err
             ok = True
+            if BLE_WAKE_DISCONNECT_DELAY_SECONDS > 0:
+                # Writes without response return as soon as they are queued. Through a
+                # Bluetooth proxy, disconnecting at once can drop them before they reach
+                # the device, so give them time to go out. Inside the try, so that a
+                # cancellation here still reaches the disconnect in finally.
+                await asyncio.sleep(BLE_WAKE_DISCONNECT_DELAY_SECONDS)
         except Exception as err:
             ok = False
             err_str = f"{type(err).__name__}: {err}"
@@ -246,6 +254,10 @@ async def async_ble_wake(
 
                 if last_err is not None:
                     raise last_err
+
+                if BLE_WAKE_DISCONNECT_DELAY_SECONDS > 0:
+                    # As above: let the writes without response go out before disconnecting.
+                    await asyncio.sleep(BLE_WAKE_DISCONNECT_DELAY_SECONDS)
 
             return BleWakeResult(
                 attempted=True,

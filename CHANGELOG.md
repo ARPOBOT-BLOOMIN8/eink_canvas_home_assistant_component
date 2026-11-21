@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on **[Keep a Changelog](https://keepachangelog.com/en/1.1.0/)**.
 This project adheres to **[Semantic Versioning](https://semver.org/)**.
 
+## [Unreleased]
+
+### Fixed
+- BLE wake through a Bluetooth proxy: the connect timeout is raised from 6 s to 20 s. Through a proxy with a weak signal, 6 s cut connects short.
+- BLE wake: wait 1 s after the wake pulse before disconnecting, so the writes without response are not dropped by a proxy that disconnects at once.
+- BLE wake: after a wake pulse is delivered, automatic wakes hold off for 45 s while the device brings Wi-Fi up. Previously the refresh after pressing "Wake (Bluetooth)" sent a second, unneeded wake.
+
 ## [1.7.0] - 2026-07-29
 
 ### Added

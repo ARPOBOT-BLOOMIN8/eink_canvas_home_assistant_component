@@ -250,6 +250,10 @@ class EinkBluetoothWakeButton(EinkBaseButton):
     async def async_press(self) -> None:
         """Handle the button press."""
         result = await async_ble_wake(self.hass, self._mac, log_prefix="Wake (Bluetooth)")
+        runtime_data = getattr(self._config_entry, "runtime_data", None)
+        if runtime_data is not None and result.attempted:
+            # Keep the post-wake refresh from sending a second wake while Wi-Fi comes up.
+            runtime_data.api_client.note_ble_wake(result.ok)
         if result.ok:
             _LOGGER.info("BLE wake signal sent successfully")
         else:
