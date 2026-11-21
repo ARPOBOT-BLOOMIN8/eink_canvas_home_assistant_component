@@ -69,11 +69,17 @@ async def async_setup_entry(
         EinkRefreshButton(hass, config_entry, host, name),
     ]
 
-    # Optional BLE wake button, whenever a Bluetooth MAC address is configured. It is created even
-    # if no connectable scanner is up yet: a Bluetooth proxy often connects a few seconds after Home
-    # Assistant starts, and the button would otherwise stay unavailable until the entry is reloaded.
-    # A press without a scanner fails gracefully in async_ble_wake.
-    if mac_address:
+    # Optional BLE wake button, when a Bluetooth MAC address is configured and Home Assistant's
+    # Bluetooth integration is set up (it loads first: it is in after_dependencies). It is created
+    # even if no connectable scanner is up yet: a Bluetooth proxy often connects a few seconds after
+    # Home Assistant starts, and the button would otherwise stay unavailable until the entry is
+    # reloaded. A press without a scanner fails gracefully in async_ble_wake.
+    if mac_address and "bluetooth" not in hass.config.components:
+        _LOGGER.debug(
+            "Not creating Wake (Bluetooth) button for %s: the Bluetooth integration is not set up",
+            host,
+        )
+    elif mac_address:
         if not _ble_wake_possible(hass):
             _LOGGER.debug(
                 "No connectable Bluetooth scanner available yet for %s; Wake (Bluetooth) needs one when pressed",

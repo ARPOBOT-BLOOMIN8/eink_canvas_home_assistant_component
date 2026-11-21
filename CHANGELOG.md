@@ -8,7 +8,8 @@ This project adheres to **[Semantic Versioning](https://semver.org/)**.
 ## [Unreleased]
 
 ### Fixed
-- The "Wake (Bluetooth)" button is now created even when no Bluetooth proxy is connected yet at startup; previously it stayed unavailable until the integration was reloaded.
+- The "Wake (Bluetooth)" button is now created even when no Bluetooth proxy is connected yet at startup; previously it stayed unavailable until the integration was reloaded. It is still left out when Home Assistant's Bluetooth integration is not set up.
+- BLE wake no longer raises an error when Home Assistant's Bluetooth integration is not set up (for example with BLE auto-wake turned on); it is skipped instead.
 
 ## [1.7.0] - 2026-07-29
 
