@@ -124,7 +124,7 @@ class EinkBaseSelect(SelectEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",
@@ -144,7 +144,7 @@ class EinkSleepDurationSelect(EinkBaseSelect):
         """Initialize the select input."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Sleep Duration"
-        self._attr_unique_id = f"eink_display_{host}_sleep_duration"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_sleep_duration"
         self._attr_icon = "mdi:sleep"
         self._attr_options = list(SLEEP_DURATION_OPTIONS.keys())
 
@@ -187,7 +187,7 @@ class EinkMaxIdleSelect(EinkBaseSelect):
         """Initialize the select input."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Max Idle Time"
-        self._attr_unique_id = f"eink_display_{host}_max_idle"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_max_idle"
         self._attr_icon = "mdi:timer"
         self._attr_options = list(MAX_IDLE_OPTIONS.keys())
         self._raw_max_idle: int | None = None
@@ -272,7 +272,7 @@ class EinkWakeSensitivitySelect(EinkBaseSelect):
         """Initialize the select input."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Wake Sensitivity"
-        self._attr_unique_id = f"eink_display_{host}_wake_sensitivity"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_wake_sensitivity"
         self._attr_icon = "mdi:gesture-tap"
         self._attr_options = list(WAKE_SENSITIVITY_OPTIONS.keys())
 

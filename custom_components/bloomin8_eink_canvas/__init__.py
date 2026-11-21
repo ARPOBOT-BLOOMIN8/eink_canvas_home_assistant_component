@@ -153,11 +153,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: EinkCanvasConfigEntry) -
         runtime_data.device_info = cached_snapshot
         async_dispatcher_send(hass, signal)
 
+    # Device and entities are keyed on the config entry, not the host, so changing the host keeps them.
+    _async_migrate_host_ids(hass, entry, host)
+
     # Create device registration
     device_registry = dr.async_get(hass)
     device_registry.async_get_or_create(
         config_entry_id=entry.entry_id,
-        identifiers={(DOMAIN, host)},
+        identifiers={(DOMAIN, entry.entry_id)},
         name=name,
         manufacturer="BLOOMIN8",
         model="E-Ink Canvas",
@@ -1180,6 +1183,44 @@ def _register_services(hass: HomeAssistant) -> None:
             handler,
             **kwargs,
         )
+
+
+@callback
+def _async_migrate_host_ids(hass: HomeAssistant, entry: ConfigEntry, host: str) -> None:
+    """Move the device and entities from host-based identifiers to the config entry id.
+
+    Versions up to 1.7.0 used the host in the device identifier and entity unique IDs, so changing
+    the host in Reconfigure created a second device and a second set of entities. Only the current
+    host's device and entities are moved; ones left behind by an earlier host change can be deleted
+    in the UI (see async_remove_config_entry_device).
+    """
+    device_registry = dr.async_get(hass)
+    devices = dr.async_entries_for_config_entry(device_registry, entry.entry_id)
+    old_device = next((d for d in devices if (DOMAIN, host) in d.identifiers), None)
+    if old_device is not None and not any((DOMAIN, entry.entry_id) in d.identifiers for d in devices):
+        device_registry.async_update_device(
+            old_device.id, new_identifiers={(DOMAIN, entry.entry_id)}
+        )
+        _LOGGER.debug("Migrated device identifier from host %s to entry %s", host, entry.entry_id)
+
+    entity_registry = er.async_get(hass)
+    old_prefix = f"eink_display_{host}_"
+    new_prefix = f"eink_display_{entry.entry_id}_"
+    for reg_entry in er.async_entries_for_config_entry(entity_registry, entry.entry_id):
+        if not reg_entry.unique_id.startswith(old_prefix):
+            continue
+        new_unique_id = new_prefix + reg_entry.unique_id[len(old_prefix):]
+        if entity_registry.async_get_entity_id(reg_entry.domain, DOMAIN, new_unique_id):
+            continue
+        entity_registry.async_update_entity(reg_entry.entity_id, new_unique_id=new_unique_id)
+        _LOGGER.debug("Migrated %s unique_id to %s", reg_entry.entity_id, new_unique_id)
+
+
+async def async_remove_config_entry_device(
+    hass: HomeAssistant, config_entry: ConfigEntry, device_entry: dr.DeviceEntry
+) -> bool:
+    """Allow deleting devices this entry no longer uses, such as one left by a host change."""
+    return (DOMAIN, config_entry.entry_id) not in device_entry.identifiers
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: EinkCanvasConfigEntry) -> bool:

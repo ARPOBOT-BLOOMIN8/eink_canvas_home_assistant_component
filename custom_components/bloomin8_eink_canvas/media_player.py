@@ -120,7 +120,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         self._host = host
         self._device_name = name
         self._attr_name = "Media Player"
-        self._attr_unique_id = f"eink_display_{host}_media_player"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_media_player"
         self._attr_state = MediaPlayerState.ON
         self._attr_media_content_type = MediaType.IMAGE
         # Force Home Assistant to proxy the image instead of handing out a direct
@@ -229,7 +229,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",
