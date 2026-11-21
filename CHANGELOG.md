@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 The format is based on **[Keep a Changelog](https://keepachangelog.com/en/1.1.0/)**.
 This project adheres to **[Semantic Versioning](https://semver.org/)**.
 
+## [Unreleased]
+
+### Fixed
+- The "Wake (Bluetooth)" button is now created even when no Bluetooth proxy is connected yet at startup; previously it stayed unavailable until the integration was reloaded.
+
 ## [1.7.0] - 2026-07-29
 
 ### Added
