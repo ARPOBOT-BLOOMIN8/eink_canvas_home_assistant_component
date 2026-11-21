@@ -43,7 +43,7 @@ class EinkDeviceNameText(TextEntity):
         self._device_name = device_name
         self._attr_has_entity_name = True
         self._attr_name = "Device Name"
-        self._attr_unique_id = f"eink_display_{host}_device_name"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_device_name"
         self._attr_icon = "mdi:rename-box"
         self._attr_mode = TextMode.TEXT
         self._attr_native_min = 1
@@ -82,7 +82,7 @@ class EinkDeviceNameText(TextEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",

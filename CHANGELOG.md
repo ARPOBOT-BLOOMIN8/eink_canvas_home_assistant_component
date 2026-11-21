@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on **[Keep a Changelog](https://keepachangelog.com/en/1.1.0/)**.
 This project adheres to **[Semantic Versioning](https://semver.org/)**.
 
+## [Unreleased]
+
+### Fixed
+- **Changing the host no longer creates a second device.** The device and entity unique IDs are now keyed on the config entry instead of the host. Existing devices and entities are migrated in place on startup, so entity IDs, history and automations are kept.
+- Devices left behind by an earlier host change can now be deleted from the device page (previously "Config entry does not support device removal").
+
 ## [1.7.0] - 2026-07-29
 
 ### Added

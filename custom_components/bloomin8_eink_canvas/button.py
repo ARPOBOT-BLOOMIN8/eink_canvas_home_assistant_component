@@ -99,7 +99,7 @@ class EinkBaseButton(ButtonEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",
@@ -114,7 +114,7 @@ class EinkNextImageButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Next Image"
-        self._attr_unique_id = f"eink_display_{host}_next_image"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_next_image"
         self._attr_icon = "mdi:skip-next"
 
     async def async_press(self) -> None:
@@ -134,7 +134,7 @@ class EinkSleepButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Sleep"
-        self._attr_unique_id = f"eink_display_{host}_sleep"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_sleep"
         self._attr_icon = "mdi:sleep"
 
     async def async_press(self) -> None:
@@ -154,7 +154,7 @@ class EinkRebootButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Reboot"
-        self._attr_unique_id = f"eink_display_{host}_reboot"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_reboot"
         self._attr_icon = "mdi:restart"
         self._attr_entity_category = EntityCategory.CONFIG
 
@@ -175,7 +175,7 @@ class EinkClearScreenButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Clear Screen"
-        self._attr_unique_id = f"eink_display_{host}_clear_screen"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_clear_screen"
         self._attr_icon = "mdi:monitor-clean"
 
     async def async_press(self) -> None:
@@ -195,7 +195,7 @@ class EinkWhistleButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Whistle"
-        self._attr_unique_id = f"eink_display_{host}_whistle"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_whistle"
         self._attr_icon = "mdi:whistle"
 
     async def async_press(self) -> None:
@@ -215,7 +215,7 @@ class EinkRefreshButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Refresh Info"
-        self._attr_unique_id = f"eink_display_{host}_refresh"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_refresh"
         self._attr_icon = "mdi:refresh"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -244,7 +244,7 @@ class EinkBluetoothWakeButton(EinkBaseButton):
         super().__init__(hass, config_entry, host, device_name)
         self._mac = mac_address
         self._attr_name = "Wake (Bluetooth)"
-        self._attr_unique_id = f"eink_display_{host}_bt_wake"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_bt_wake"
         self._attr_icon = "mdi:bluetooth-connect"
 
     async def async_press(self) -> None:

@@ -113,7 +113,7 @@ class EinkBaseCoordinatorSensor(CoordinatorEntity, SensorEntity):
     def device_info(self) -> DeviceInfo:
         """Return device information."""
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",
@@ -148,7 +148,7 @@ class EinkDeviceInfoSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Device Info"
-        self._attr_unique_id = f"eink_display_{host}_device_info"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_device_info"
         self._attr_icon = "mdi:information"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -264,7 +264,7 @@ class EinkLastUpdateSensor(EinkBaseCoordinatorSensor, RestoreEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Last Update"
-        self._attr_unique_id = f"eink_display_{host}_last_update"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_last_update"
         self._attr_device_class = SensorDeviceClass.TIMESTAMP
         self._attr_icon = "mdi:clock-check-outline"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -313,7 +313,7 @@ class EinkBatterySensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Battery"
-        self._attr_unique_id = f"eink_display_{host}_battery"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_battery"
         self._attr_device_class = SensorDeviceClass.BATTERY
         self._attr_state_class = SensorStateClass.MEASUREMENT
         self._attr_native_unit_of_measurement = PERCENTAGE
@@ -333,7 +333,7 @@ class EinkStorageSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Storage"
-        self._attr_unique_id = f"eink_display_{host}_storage"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_storage"
         self._attr_icon = "mdi:harddisk"
 
     @callback
@@ -392,7 +392,7 @@ class EinkCurrentImageSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Current Image"
-        self._attr_unique_id = f"eink_display_{host}_current_image"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_current_image"
         self._attr_icon = "mdi:image"
 
     @callback
@@ -425,7 +425,7 @@ class EinkLogSensor(SensorEntity):
         self._device_name = device_name
         self._attr_has_entity_name = True
         self._attr_name = "Logs"
-        self._attr_unique_id = f"eink_display_{host}_logs"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_logs"
         self._attr_icon = "mdi:text-box"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_should_poll = False
@@ -454,7 +454,7 @@ class EinkLogSensor(SensorEntity):
     @property
     def device_info(self) -> DeviceInfo:
         return DeviceInfo(
-            identifiers={(DOMAIN, self._host)},
+            identifiers={(DOMAIN, self._config_entry.entry_id)},
             name=self._device_name,
             manufacturer="BLOOMIN8",
             model="E-Ink Canvas",
@@ -494,7 +494,7 @@ class EinkFirmwareVersionSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Firmware Version"
-        self._attr_unique_id = f"eink_display_{host}_firmware_version"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_firmware_version"
         self._attr_icon = "mdi:chip"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -512,7 +512,7 @@ class EinkWifiSSIDSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "WiFi SSID"
-        self._attr_unique_id = f"eink_display_{host}_wifi_ssid"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_wifi_ssid"
         self._attr_icon = "mdi:wifi"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -538,7 +538,7 @@ class EinkScreenResolutionSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Screen Resolution"
-        self._attr_unique_id = f"eink_display_{host}_screen_resolution"
+        self._attr_unique_id = f"eink_display_{config_entry.entry_id}_screen_resolution"
         self._attr_icon = "mdi:monitor-screenshot"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
