@@ -165,16 +165,17 @@ async def async_ble_wake(
             if last_err is not None:
                 raise last_err
             ok = True
+            if BLE_WAKE_DISCONNECT_DELAY_SECONDS > 0:
+                # Writes without response return as soon as they are queued. Through a
+                # Bluetooth proxy, disconnecting at once can drop them before they reach
+                # the device, so give them time to go out. Inside the try, so that a
+                # cancellation here still reaches the disconnect in finally.
+                await asyncio.sleep(BLE_WAKE_DISCONNECT_DELAY_SECONDS)
         except Exception as err:
             ok = False
             err_str = f"{type(err).__name__}: {err}"
         finally:
             if client is not None:
-                if used_char is not None and BLE_WAKE_DISCONNECT_DELAY_SECONDS > 0:
-                    # Writes without response return as soon as they are queued. Through a
-                    # Bluetooth proxy, disconnecting at once can drop them before they reach
-                    # the device, so give them time to go out.
-                    await asyncio.sleep(BLE_WAKE_DISCONNECT_DELAY_SECONDS)
                 t_disconnect_start = time.monotonic()
                 try:
                     await asyncio.wait_for(client.disconnect(), timeout=float(disconnect_timeout))
