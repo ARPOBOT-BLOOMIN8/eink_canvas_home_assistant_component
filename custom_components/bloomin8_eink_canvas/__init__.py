@@ -453,7 +453,9 @@ def _snap_to_supported_sizes(width: int, height: int) -> tuple[int, int]:
         return 1200, 1600
     if max(w, h) <= 900:
         return 480, 800
-    return 1200, 1600
+    if max(w, h) <= 2000:
+        return 1200, 1600
+    return 2160, 3060
 
 
 # ---------------------------------------------------------------------------
