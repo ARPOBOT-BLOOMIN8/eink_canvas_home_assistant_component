@@ -61,7 +61,7 @@ async def async_ble_wake(
     Returns a BleWakeResult with timings and the chosen characteristic.
     """
 
-    mac = (mac_address or "").strip()
+    mac = (mac_address or "").strip().upper()
     if not mac:
         return BleWakeResult(attempted=False, ok=False, mode="none", error="missing mac")
 
