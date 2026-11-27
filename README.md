@@ -61,7 +61,7 @@ The manual way (if you like living on the edge): -->
 
     Tip: If the Canvas shows up in Home Assistant as a **Bluetooth discovered** device, you can click **Configure** from the discovered card. The flow will prefill the Bluetooth MAC address for BLE wake.
 
-4.  Give it a name. Something fun, like `Living Room Portal` or `The Void`.
+4.  Give it a name. Something fun, like `Living Room Portal` or `The Void`. If the connection fails, correct the fields you need and submit the form again.
 
 -----
 
