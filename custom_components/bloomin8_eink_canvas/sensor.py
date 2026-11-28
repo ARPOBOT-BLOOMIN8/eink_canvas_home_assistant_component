@@ -313,6 +313,7 @@ class EinkBatterySensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Battery"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"eink_display_{host}_battery"
         self._attr_device_class = SensorDeviceClass.BATTERY
         self._attr_state_class = SensorStateClass.MEASUREMENT
@@ -333,6 +334,7 @@ class EinkStorageSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Storage"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"eink_display_{host}_storage"
         self._attr_icon = "mdi:harddisk"
 
@@ -392,6 +394,7 @@ class EinkCurrentImageSensor(EinkBaseCoordinatorSensor):
         """Initialize the sensor."""
         super().__init__(coordinator, hass, config_entry, host, device_name)
         self._attr_name = "Current Image"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
         self._attr_unique_id = f"eink_display_{host}_current_image"
         self._attr_icon = "mdi:image"
 

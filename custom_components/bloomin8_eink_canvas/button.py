@@ -134,6 +134,7 @@ class EinkSleepButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Sleep"
+        self._attr_entity_category = EntityCategory.CONFIG
         self._attr_unique_id = f"eink_display_{host}_sleep"
         self._attr_icon = "mdi:sleep"
 
@@ -175,6 +176,7 @@ class EinkClearScreenButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Clear Screen"
+        self._attr_entity_category = EntityCategory.CONFIG
         self._attr_unique_id = f"eink_display_{host}_clear_screen"
         self._attr_icon = "mdi:monitor-clean"
 
@@ -195,6 +197,7 @@ class EinkWhistleButton(EinkBaseButton):
         """Initialize the button."""
         super().__init__(hass, config_entry, host, device_name)
         self._attr_name = "Whistle"
+        self._attr_entity_category = EntityCategory.CONFIG
         self._attr_unique_id = f"eink_display_{host}_whistle"
         self._attr_icon = "mdi:whistle"
 
