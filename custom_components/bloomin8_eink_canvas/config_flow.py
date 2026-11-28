@@ -239,24 +239,14 @@ def _build_ble_selector_options(
     return options
 
 
-async def _async_ble_wake_and_wait(hass: HomeAssistant, mac_address: str) -> None:
-    """Try to wake the device via BLE, then wait for Wi-Fi/HTTP to come up.
-
-    Best-effort: failures are logged and the config flow continues.
-    """
-    mac_address = (mac_address or "").strip()
-    if not mac_address:
-        return
-
-    result = await async_ble_wake(hass, mac_address, log_prefix="ConfigFlow BLE wake")
-    if result.attempted:
-        # Give the device time to bring up Wi‑Fi/HTTP after the BLE wake pulse.
-        _LOGGER.debug("ConfigFlow BLE wake attempted; waiting ~10s for Wi-Fi/HTTP")
-        await asyncio.sleep(10)
-        _LOGGER.debug("ConfigFlow BLE wake wait finished")
+async def _async_wake_for_setup(hass: HomeAssistant, mac_address: str | None) -> bool:
+    if not mac_address or not mac_address.strip():
+        return False
+    result = await async_ble_wake(hass, mac_address.strip(), log_prefix="ConfigFlow BLE wake")
+    return result.attempted
 
 
-async def validate_input(hass: HomeAssistant, data: dict) -> dict:
+async def validate_input(hass: HomeAssistant, data: dict, *, wake_address: str | None = None) -> dict:
     """Validate the user input allows us to connect."""
     host = data[CONF_HOST]
     _LOGGER.info("Attempting to connect to device at: %s", host)
@@ -265,7 +255,18 @@ async def validate_input(hass: HomeAssistant, data: dict) -> dict:
 
     # Try to get device info to verify connection
     # Config flow should not wake the device via BLE (no background side effects).
-    device_info = await api_client.get_device_info(wake=False)
+    if await _async_wake_for_setup(hass, wake_address):
+        device_info = None
+        try:
+            async with asyncio.timeout(10):
+                while device_info is None:
+                    device_info = await api_client.get_device_info(wake=False, timeout=2, log_errors=False)
+                    if device_info is None:
+                        await asyncio.sleep(0.5)
+        except TimeoutError:
+            pass
+    else:
+        device_info = await api_client.get_device_info(wake=False)
     if device_info is None:
         _LOGGER.error("Failed to connect to device at %s - no response from /deviceInfo endpoint", host)
         raise CannotConnect
@@ -359,7 +360,8 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 "Discovery pre-wake via BLE before mDNS scan (mac=%s)",
                 self._prefill_mac,
             )
-            await _async_ble_wake_and_wait(self.hass, self._prefill_mac)
+            if await _async_wake_for_setup(self.hass, self._prefill_mac):
+                await asyncio.sleep(10)
 
         ips = await _async_mdns_http_candidates(self.hass, browse_timeout=5.0)
         _LOGGER.debug("mDNS browse returned %d candidate IPv4 address(es)", len(ips))
@@ -469,9 +471,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 wake_mac = (user_input.get(CONF_MAC_ADDRESS) or "").strip()
                 if not wake_mac and _ble_wake_possible(self.hass):
                     wake_mac = (cand.bt_mac_norm or "").strip()
-                await _async_ble_wake_and_wait(self.hass, wake_mac)
-
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, user_input, wake_address=wake_mac)
 
                 # Prefer SN as stable identity.
                 sn = info.get("sn")
@@ -576,9 +576,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input.pop(CONF_BLE_DEVICE, None)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
-                await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
-
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, user_input, wake_address=user_input.get(CONF_MAC_ADDRESS, ""))
 
                 # If Bluetooth is available and we learned bt_mac, store it for future BLE wakes.
                 if _ble_wake_possible(self.hass) and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
@@ -682,9 +680,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 user_input.pop(CONF_BLE_DEVICE, None)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
-                await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
-
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, user_input, wake_address=user_input.get(CONF_MAC_ADDRESS, ""))
 
                 # Prefer SN as stable identity.
                 sn = info.get("sn")
