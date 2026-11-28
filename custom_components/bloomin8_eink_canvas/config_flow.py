@@ -457,21 +457,22 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return await self.async_step_discover()
 
         if user_input is not None:
+            data = user_input.copy()
             try:
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                selected = (data.get(CONF_BLE_DEVICE) or "").strip()
+                if selected and not (data.get(CONF_MAC_ADDRESS) or "").strip():
+                    data[CONF_MAC_ADDRESS] = selected
+                data.pop(CONF_BLE_DEVICE, None)
 
                 # Best-effort wake before validation/entry creation:
                 # - Prefer an explicit MAC (user selection / input)
                 # - Otherwise use the MAC we derived from /deviceInfo during discovery
-                wake_mac = (user_input.get(CONF_MAC_ADDRESS) or "").strip()
+                wake_mac = (data.get(CONF_MAC_ADDRESS) or "").strip()
                 if not wake_mac and _ble_wake_possible(self.hass):
                     wake_mac = (cand.bt_mac_norm or "").strip()
                 await _async_ble_wake_and_wait(self.hass, wake_mac)
 
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, data)
 
                 # Prefer SN as stable identity.
                 sn = info.get("sn")
@@ -480,12 +481,12 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._abort_if_unique_id_configured()
 
                 # If Bluetooth is available and we learned bt_mac, store it for future BLE wakes.
-                if _ble_wake_possible(self.hass) and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
+                if _ble_wake_possible(self.hass) and not (data.get(CONF_MAC_ADDRESS) or "").strip():
                     bt_mac_norm = info.get("bt_mac_norm")
                     if bt_mac_norm:
-                        user_input[CONF_MAC_ADDRESS] = bt_mac_norm
+                        data[CONF_MAC_ADDRESS] = bt_mac_norm
 
-                return self.async_create_entry(title=info["title"], data=user_input)
+                return self.async_create_entry(title=info["title"], data=data)
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
             except InvalidAuth:
@@ -558,7 +559,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="discover_confirm",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input),
             errors=errors,
         )
 
@@ -568,23 +569,24 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         reconfigure_entry = self._get_reconfigure_entry()
 
         if user_input is not None:
+            data = user_input.copy()
             try:
                 # Map dropdown selection -> mac_address if provided.
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                selected = (data.get(CONF_BLE_DEVICE) or "").strip()
+                if selected and not (data.get(CONF_MAC_ADDRESS) or "").strip():
+                    data[CONF_MAC_ADDRESS] = selected
+                data.pop(CONF_BLE_DEVICE, None)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
-                await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
+                await _async_ble_wake_and_wait(self.hass, data.get(CONF_MAC_ADDRESS, ""))
 
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, data)
 
                 # If Bluetooth is available and we learned bt_mac, store it for future BLE wakes.
-                if _ble_wake_possible(self.hass) and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
+                if _ble_wake_possible(self.hass) and not (data.get(CONF_MAC_ADDRESS) or "").strip():
                     bt_mac_norm = info.get("bt_mac_norm")
                     if bt_mac_norm:
-                        user_input[CONF_MAC_ADDRESS] = bt_mac_norm
+                        data[CONF_MAC_ADDRESS] = bt_mac_norm
 
                 # If the entry has no unique_id yet, set it to SN (stable identity).
                 # (Existing entries keep their unique_id; we only fill missing ones.)
@@ -594,7 +596,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
                 return self.async_update_reload_and_abort(
                     reconfigure_entry,
-                    data_updates=user_input,
+                    data_updates=data,
                 )
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
@@ -665,7 +667,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input),
             errors=errors,
         )
 
@@ -674,17 +676,18 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         errors = {}
 
         if user_input is not None:
+            data = user_input.copy()
             try:
                 # Map dropdown selection -> mac_address if provided.
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                selected = (data.get(CONF_BLE_DEVICE) or "").strip()
+                if selected and not (data.get(CONF_MAC_ADDRESS) or "").strip():
+                    data[CONF_MAC_ADDRESS] = selected
+                data.pop(CONF_BLE_DEVICE, None)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
-                await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
+                await _async_ble_wake_and_wait(self.hass, data.get(CONF_MAC_ADDRESS, ""))
 
-                info = await validate_input(self.hass, user_input)
+                info = await validate_input(self.hass, data)
 
                 # Prefer SN as stable identity.
                 sn = info.get("sn")
@@ -693,14 +696,14 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     self._abort_if_unique_id_configured()
 
                 # If Bluetooth is available and we learned bt_mac, store it for future BLE wakes.
-                if _ble_wake_possible(self.hass) and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
+                if _ble_wake_possible(self.hass) and not (data.get(CONF_MAC_ADDRESS) or "").strip():
                     bt_mac_norm = info.get("bt_mac_norm")
                     if bt_mac_norm:
-                        user_input[CONF_MAC_ADDRESS] = bt_mac_norm
+                        data[CONF_MAC_ADDRESS] = bt_mac_norm
 
                 return self.async_create_entry(
                     title=info["title"],
-                    data=user_input
+                    data=data
                 )
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
@@ -774,7 +777,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="manual",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input),
             errors=errors,
         )
 
