@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on **[Keep a Changelog](https://keepachangelog.com/en/1.1.0/)**.
 This project adheres to **[Semantic Versioning](https://semver.org/)**.
 
+## [Unreleased]
+
+- Discover frames that advertise Device Information through Bluetooth service data.
+
 ## [1.7.0] - 2026-07-29
 
 ### Added
