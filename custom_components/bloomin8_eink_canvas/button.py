@@ -122,7 +122,7 @@ class EinkNextImageButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "show_next",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -142,7 +142,7 @@ class EinkSleepButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "sleep",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -163,7 +163,7 @@ class EinkRebootButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "reboot",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -183,7 +183,7 @@ class EinkClearScreenButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "clear_screen",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -203,7 +203,7 @@ class EinkWhistleButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "whistle",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -224,7 +224,7 @@ class EinkRefreshButton(EinkBaseButton):
         await self.hass.services.async_call(
             DOMAIN,
             "refresh_device_info",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 

@@ -5,6 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on **[Keep a Changelog](https://keepachangelog.com/en/1.1.0/)**.
 This project adheres to **[Semantic Versioning](https://semver.org/)**.
 
+## [Unreleased]
+
+- Send commands from buttons, settings, and media players to the selected frame.
+
 ## [1.7.0] - 2026-07-29
 
 ### Added
