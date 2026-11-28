@@ -35,19 +35,15 @@ Requirements:
 
 Tip: The Mobile App Bluetooth wake is still useful as a quick fallback if you just need to wake it once.
 
-### 2\. Install the Integration
+### 2. Install the integration from the Marketplace
 
-<!-- The easy way (HACS), which you should totally do:
+[![Open this repository in the Home Assistant Marketplace](https://my.home-assistant.io/badges/marketplace_repository.svg)](https://my.home-assistant.io/redirect/marketplace_repository/?owner=ARPOBOT-BLOOMIN8&repository=eink_canvas_home_assistant_component&category=integration)
 
-1.  Open HACS in Home Assistant.
-2.  Search for "BLOOMIN8 E-Ink Canvas" and install it.
-3.  Restart Home Assistant (we know, it's annoying, but it's the law).
+1. Select the button above and confirm that you want to add this custom repository.
+2. Install **BLOOMIN8 E-Ink Canvas** from the Marketplace.
+3. Restart Home Assistant.
 
-The manual way (if you like living on the edge): -->
-
-1.  Download the latest release from GitHub.
-2.  Unzip and dump the `bloomin8_eink_canvas` folder into your `custom_components` directory.
-3.  Restart. Told you.
+For manual installation, copy the `custom_components/bloomin8_eink_canvas` folder from this repository into your Home Assistant `custom_components` directory and restart Home Assistant.
 
 ### 3\. Add it to Home Assistant
 
