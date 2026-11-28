@@ -90,6 +90,7 @@
             }
         },
         "error": {
+            "invalid_mac_address": "Enter a Bluetooth address with 12 hexadecimal digits.",
             "cannot_connect": "Failed to connect to device",
             "invalid_auth": "Invalid authentication",
             "unknown": "Unexpected error occurred"
