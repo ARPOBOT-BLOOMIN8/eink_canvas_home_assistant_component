@@ -203,7 +203,14 @@ def _is_probably_bloomin8(service_info: bluetooth.BluetoothServiceInfoBleak) -> 
     # Prefer stable identifiers from the advertisement payload.
     manufacturer_data = getattr(service_info, "manufacturer_data", None) or {}
     payload = manufacturer_data.get(BLE_MANUFACTURER_ID, b"")
-    if payload[6:10] == b"BATT":
+    info_uuid = "0000180a-0000-1000-8000-00805f9b34fb"
+    device_information = (
+        info_uuid in (service_info.service_uuids or [])
+        or info_uuid in (service_info.service_data or {})
+    )
+    if BLE_MANUFACTURER_ID in manufacturer_data and (
+        not device_information or payload[6:10] == b"BATT"
+    ):
         return True
 
     uuids = {u.lower() for u in (service_info.service_uuids or [])}
