@@ -20,7 +20,7 @@ class FormRetryTests(IsolatedAsyncioTestCase):
                 setup._discovered["found"] = flow._DiscoveredCandidate("frame", "Old", "123", mac)
                 setup._get_reconfigure_entry = Mock(return_value=Mock(data={}))
                 with (
-                    patch.object(flow, "_async_ble_wake_and_wait"),
+                    patch.object(flow, "async_ble_wake", return_value=Mock(attempted=False)),
                     patch.object(flow, "validate_input", side_effect=flow.CannotConnect),
                     patch.object(flow, "_ble_wake_possible", return_value=True),
                     patch.object(flow, "_build_ble_selector_options", return_value=[mac]),
