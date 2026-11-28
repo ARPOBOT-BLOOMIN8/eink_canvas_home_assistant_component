@@ -66,13 +66,27 @@ class _DiscoveredCandidate:
 
 def _normalize_bt_mac(bt_mac: str | None) -> str | None:
     """Normalize deviceInfo.bt_mac (e.g. F49042163F47) to AA:BB:CC:DD:EE:FF."""
-    if not bt_mac:
+    address = (bt_mac or "").strip()
+    pair = r"[0-9A-Fa-f]{2}"
+    if not any(
+        re.fullmatch(separator.join([pair] * 6), address)
+        for separator in ("", ":", "-")
+    ):
         return None
-    s = str(bt_mac).strip().lower()
-    s = re.sub(r"[^0-9a-f]", "", s)
-    if len(s) != 12:
-        return None
-    return ":".join([s[i : i + 2] for i in range(0, 12, 2)])
+    compact = address.replace(":", "").replace("-", "").upper()
+    return ":".join(compact[i : i + 2] for i in range(0, 12, 2))
+
+
+def _set_wake_address(data: dict) -> None:
+    selected = data.pop(CONF_BLE_DEVICE, "")
+    address = (data.get(CONF_MAC_ADDRESS) or "").strip() or selected
+    if address:
+        normalized = _normalize_bt_mac(address)
+        if normalized is None:
+            raise InvalidMacAddress
+        data[CONF_MAC_ADDRESS] = normalized
+    elif CONF_MAC_ADDRESS in data:
+        data[CONF_MAC_ADDRESS] = ""
 
 
 def _deviceinfo_signature_matches(device_info: dict[str, Any] | None) -> bool:
@@ -458,10 +472,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             try:
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                _set_wake_address(user_input)
 
                 # Best-effort wake before validation/entry creation:
                 # - Prefer an explicit MAC (user selection / input)
@@ -486,6 +497,8 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         user_input[CONF_MAC_ADDRESS] = bt_mac_norm
 
                 return self.async_create_entry(title=info["title"], data=user_input)
+            except InvalidMacAddress:
+                errors[CONF_MAC_ADDRESS] = "invalid_mac_address"
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
             except InvalidAuth:
@@ -558,7 +571,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="discover_confirm",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input) if CONF_MAC_ADDRESS in errors else vol.Schema(schema_dict),
             errors=errors,
         )
 
@@ -570,10 +583,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 # Map dropdown selection -> mac_address if provided.
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                _set_wake_address(user_input)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
                 await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
@@ -596,6 +606,8 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     reconfigure_entry,
                     data_updates=user_input,
                 )
+            except InvalidMacAddress:
+                errors[CONF_MAC_ADDRESS] = "invalid_mac_address"
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
             except InvalidAuth:
@@ -665,7 +677,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input) if CONF_MAC_ADDRESS in errors else vol.Schema(schema_dict),
             errors=errors,
         )
 
@@ -676,10 +688,7 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             try:
                 # Map dropdown selection -> mac_address if provided.
-                selected = (user_input.get(CONF_BLE_DEVICE) or "").strip()
-                if selected and not (user_input.get(CONF_MAC_ADDRESS) or "").strip():
-                    user_input[CONF_MAC_ADDRESS] = selected
-                user_input.pop(CONF_BLE_DEVICE, None)
+                _set_wake_address(user_input)
 
                 # If BLE is configured, wake first and wait for Wi-Fi to come up.
                 await _async_ble_wake_and_wait(self.hass, user_input.get(CONF_MAC_ADDRESS, ""))
@@ -702,6 +711,8 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     title=info["title"],
                     data=user_input
                 )
+            except InvalidMacAddress:
+                errors[CONF_MAC_ADDRESS] = "invalid_mac_address"
             except CannotConnect:
                 errors["base"] = ERROR_CANNOT_CONNECT
             except InvalidAuth:
@@ -774,9 +785,13 @@ class EinkDisplayConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="manual",
-            data_schema=vol.Schema(schema_dict),
+            data_schema=self.add_suggested_values_to_schema(vol.Schema(schema_dict), user_input) if CONF_MAC_ADDRESS in errors else vol.Schema(schema_dict),
             errors=errors,
         )
+
+class InvalidMacAddress(ValueError):
+    """Invalid Bluetooth wake address."""
+
 
 class CannotConnect(HomeAssistantError):
     """Error to indicate we cannot connect."""
