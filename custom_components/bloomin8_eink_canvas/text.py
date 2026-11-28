@@ -118,6 +118,7 @@ class EinkDeviceNameText(TextEntity):
             DOMAIN,
             "update_settings",
             {
+                "entity_id": self.entity_id,
                 "name": value,
             },
             blocking=True,

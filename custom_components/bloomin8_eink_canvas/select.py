@@ -174,6 +174,7 @@ class EinkSleepDurationSelect(EinkBaseSelect):
             DOMAIN,
             "update_settings",
             {
+                "entity_id": self.entity_id,
                 "sleep_duration": SLEEP_DURATION_OPTIONS[option],
             },
             blocking=True,
@@ -259,6 +260,7 @@ class EinkMaxIdleSelect(EinkBaseSelect):
             DOMAIN,
             "update_settings",
             {
+                "entity_id": self.entity_id,
                 "max_idle": new_max_idle,
             },
             blocking=True,
@@ -302,6 +304,7 @@ class EinkWakeSensitivitySelect(EinkBaseSelect):
             DOMAIN,
             "update_settings",
             {
+                "entity_id": self.entity_id,
                 "idx_wake_sens": WAKE_SENSITIVITY_OPTIONS[option],
             },
             blocking=True,

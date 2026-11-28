@@ -412,7 +412,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         await self.hass.services.async_call(
             DOMAIN,
             "whistle",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -421,7 +421,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         await self.hass.services.async_call(
             DOMAIN,
             "sleep",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
@@ -430,7 +430,7 @@ class EinkDisplayMediaPlayer(CoordinatorEntity, MediaPlayerEntity):
         await self.hass.services.async_call(
             DOMAIN,
             "show_next",
-            {},
+            {"entity_id": self.entity_id},
             blocking=True,
         )
 
